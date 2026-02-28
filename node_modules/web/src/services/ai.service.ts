@@ -1,6 +1,36 @@
 import api from './api';
 
 export const aiService = {
+    getReportCharts: async () => {
+        const response = await api.get('/ai/reports/charts');
+        return response.data;
+    },
+
+    getReportMetrics: async () => {
+        const response = await api.get('/ai/reports/metrics');
+        return response.data;
+    },
+
+    getForecast7dByFarm: async (farmId: string, asOf?: string) => {
+        const params = new URLSearchParams();
+        if (asOf) {
+            params.append('as_of', asOf);
+        }
+        const query = params.toString();
+        const suffix = query ? `?${query}` : '';
+        const response = await api.get(`/ai/forecast7d/farm/${farmId}${suffix}`);
+        return response.data;
+    },
+
+    getForecast7d: async (province: string, asOf?: string) => {
+        const params = new URLSearchParams({ province });
+        if (asOf) {
+            params.append('as_of', asOf);
+        }
+        const response = await api.get(`/ai/forecast7d?${params.toString()}`);
+        return response.data;
+    },
+
     chat: async (message: string, image?: File) => {
         const formData = new FormData();
         formData.append('message', message || "Hãy phân tích hình ảnh này");

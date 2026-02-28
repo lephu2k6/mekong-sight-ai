@@ -1,20 +1,25 @@
 from __future__ import annotations
 
+import asyncio
+import csv
 import io
 import os
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 import google.generativeai as genai
 import numpy as np
 from dotenv import load_dotenv
-from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Query, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from PIL import Image
 from pydantic import BaseModel
 from supabase import Client, create_client
 
 from app.ml_pipeline.infer import ForecastError, ForecastResult, ForecastService
+from app.ml_pipeline.data_loader import parse_province_from_address
 
 load_dotenv()
 
@@ -27,6 +32,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+REPORTS_DIR = Path(__file__).resolve().parent / "reports"
+CHARTS_DIR = REPORTS_DIR / "charts"
+CHARTS_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/api/ai/reports/static/charts", StaticFiles(directory=str(CHARTS_DIR)), name="ai-report-charts")
 
 
 def _init_supabase_client() -> Optional[Client]:
@@ -111,6 +121,13 @@ class Forecast7DResponse(BaseModel):
 
 
 _forecast_service: Optional[ForecastService] = None
+FARM_CODE_PROVINCE = {
+    "ST": "Soc Trang",
+    "BL": "Bac Lieu",
+    "KG": "Kien Giang",
+    "BT": "Ben Tre",
+    "CM": "Ca Mau",
+}
 
 
 def get_forecast_service() -> ForecastService:
@@ -123,6 +140,30 @@ def get_forecast_service() -> ForecastService:
 @app.get("/health")
 def health_check():
     return {"status": "ok", "service": "ai-service"}
+
+
+@app.get("/api/ai/reports/charts")
+def list_report_charts(request: Request):
+    charts = sorted(path.name for path in CHARTS_DIR.glob("*.png"))
+    base_url = str(request.base_url).rstrip("/")
+    return {
+        "success": True,
+        "data": [
+            {"name": name, "url": f"{base_url}/api/ai/reports/static/charts/{name}"}
+            for name in charts
+        ],
+    }
+
+
+@app.get("/api/ai/reports/metrics")
+def get_report_metrics():
+    metrics_path = REPORTS_DIR / "metrics_summary.csv"
+    if not metrics_path.exists():
+        return {"success": True, "data": []}
+    with metrics_path.open("r", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        rows = list(reader)
+    return {"success": True, "data": rows}
 
 
 @app.get("/api/ai/forecast7d", response_model=Forecast7DResponse)
@@ -144,24 +185,73 @@ def forecast_7d(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@app.post("/api/ai/analyze")
-async def analyze_farm(request: AnalysisRequest, background_tasks: BackgroundTasks):
+@app.get("/api/ai/forecast7d/farm/{farm_id}", response_model=Forecast7DResponse)
+def forecast_7d_by_farm(
+    farm_id: str,
+    as_of: Optional[str] = Query(None, description="Optional date YYYY-MM-DD"),
+):
     client = _require_supabase()
     try:
-        farm_res = client.table("farms").select("user_id").eq("id", request.farm_id).single().execute()
+        farm_res = client.table("farms").select("address,farm_code").eq("id", farm_id).single().execute()
+        farm = farm_res.data
+        if not farm:
+            raise HTTPException(status_code=404, detail="Farm not found.")
+
+        province = parse_province_from_address(farm.get("address", ""))
+        if not province:
+            farm_code = str(farm.get("farm_code", "")).upper()
+            prefix = farm_code.split("_")[0]
+            province = FARM_CODE_PROVINCE.get(prefix)
+        if not province:
+            raise HTTPException(status_code=422, detail="Cannot infer province from farm.")
+
+        result: ForecastResult = get_forecast_service().forecast(province=province, as_of=as_of)
+        return Forecast7DResponse(
+            province=result.province,
+            as_of=result.as_of,
+            model_version=result.model_version,
+            forecast=[ForecastPointResponse(**point.__dict__) for point in result.forecast],
+        )
+    except HTTPException:
+        raise
+    except ForecastError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/api/ai/analyze")
+async def analyze_farm(request: AnalysisRequest):
+    if not request.farm_id or not request.analysis_type:
+        raise HTTPException(status_code=400, detail="farm_id and analysis_type are required.")
+    # Queue background flow and return immediately to keep UI responsive.
+    asyncio.create_task(queue_analysis(request.farm_id, request.analysis_type))
+    return {"success": True, "message": "AI Analysis queued"}
+
+
+async def queue_analysis(farm_id: str, analysis_type: str) -> None:
+    if supabase is None:
+        print("[AI] Supabase unavailable, skip storing analysis request.")
+        return
+    try:
+        farm_res = supabase.table("farms").select("user_id").eq("id", farm_id).single().execute()
         user_id = farm_res.data["user_id"]
-        client.table("analysis_requests").insert(
+        supabase.table("analysis_requests").insert(
             {
                 "user_id": user_id,
-                "farm_id": request.farm_id,
-                "analysis_type": request.analysis_type,
+                "farm_id": farm_id,
+                "analysis_type": analysis_type,
                 "status": "pending",
             }
         ).execute()
-        background_tasks.add_task(process_analysis, request.farm_id, request.analysis_type)
-        return {"success": True, "message": "AI Analysis started"}
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        print(f"[AI] Failed to store analysis request: {exc}")
+        return
+
+    try:
+        await process_analysis(farm_id, analysis_type)
+    except Exception as exc:
+        print(f"[AI] Failed to process analysis: {exc}")
 
 
 @app.get("/api/ai/recommendations/{farm_id}")

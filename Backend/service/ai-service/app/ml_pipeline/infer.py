@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional
+from zoneinfo import ZoneInfo
 
 import joblib
 import pandas as pd
@@ -39,7 +40,7 @@ class ForecastError(Exception):
 class ForecastService:
     def __init__(self, metadata_path: Path = DEFAULT_METADATA_PATH):
         if not metadata_path.exists():
-            raise ForecastError(404, "Model metadata chưa tồn tại. Hãy train AI1 trước.")
+            raise ForecastError(404, "Model metadata not found. Train AI1 first.")
         self.metadata_path = metadata_path
         self.metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
         self.models: Dict[int, object] = {}
@@ -49,7 +50,7 @@ class ForecastService:
         for horizon in self.metadata.get("horizons", []):
             model_path = self.metadata_path.parent / f"salinity_day{horizon}.pkl"
             if not model_path.exists():
-                raise ForecastError(404, f"Thiếu model file: {model_path.name}")
+                raise ForecastError(404, f"Missing model file: {model_path.name}")
             self.models[int(horizon)] = joblib.load(model_path)
 
     def _load_daily_dataset(self) -> pd.DataFrame:
@@ -66,7 +67,7 @@ class ForecastService:
         local_dataset = Path(local_dataset_raw) if local_dataset_raw else None
         use_supabase_fallback = bool(data_sources.get("supabase_fallback", False))
         if not weather_csv.exists():
-            raise ForecastError(500, "Không tìm thấy weather CSV để rebuild dữ liệu infer.")
+            raise ForecastError(500, "Weather CSV not found to rebuild inference dataset.")
         return build_daily_dataset(
             weather_csv_path=weather_csv,
             local_dataset_path=local_dataset if local_dataset and local_dataset.exists() else None,
@@ -76,28 +77,30 @@ class ForecastService:
     def forecast(self, province: str, as_of: Optional[str] = None) -> ForecastResult:
         normalized_province = normalize_province_name(province or "")
         if not normalized_province:
-            raise ForecastError(400, "Thiếu province hợp lệ.")
+            raise ForecastError(400, "province is required.")
         if normalized_province not in self.metadata.get("provinces", []):
-            raise ForecastError(404, f"Không có dữ liệu/model cho tỉnh: {province}")
+            raise ForecastError(404, f"No model/data for province: {province}")
 
         base_daily = self._load_daily_dataset()
         feature_frame, feature_cols, _ = build_feature_frame(base_daily, include_targets=False)
         province_frame = feature_frame[feature_frame["province"] == normalized_province].copy()
         province_frame = province_frame.dropna(subset=feature_cols)
         if province_frame.empty:
-            raise ForecastError(422, "Không đủ lịch sử dữ liệu để tạo feature dự báo.")
+            raise ForecastError(422, "Not enough history to build forecast features.")
 
         if as_of:
             try:
-                as_of_dt = pd.to_datetime(as_of).normalize()
+                requested_as_of = pd.to_datetime(as_of).normalize().date()
             except Exception as exc:
-                raise ForecastError(400, "as_of phải đúng định dạng YYYY-MM-DD.") from exc
-            province_frame = province_frame[province_frame["date"] <= as_of_dt]
+                raise ForecastError(400, "as_of must be YYYY-MM-DD.") from exc
+        else:
+            requested_as_of = datetime.now(ZoneInfo("Asia/Bangkok")).date()
+
+        province_frame = province_frame[province_frame["date"].dt.date <= requested_as_of]
         if province_frame.empty:
-            raise ForecastError(422, "Không tìm thấy dữ liệu hợp lệ trước mốc as_of.")
+            raise ForecastError(422, "No valid data available before as_of.")
 
         latest_row = province_frame.sort_values("date").iloc[[-1]].copy()
-        as_of_date = pd.Timestamp(latest_row["date"].iloc[0]).date()
         province_cols = self.metadata.get("province_dummy_columns", [])
         x_latest = encode_features(latest_row, feature_cols, province_cols)
         expected_cols = self.metadata.get("feature_columns", [])
@@ -112,14 +115,14 @@ class ForecastService:
             points.append(
                 ForecastPoint(
                     day_ahead=int(horizon),
-                    date=(as_of_date + timedelta(days=int(horizon))).strftime("%Y-%m-%d"),
+                    date=(requested_as_of + timedelta(days=int(horizon))).strftime("%Y-%m-%d"),
                     salinity_pred=round(pred, 4),
                 )
             )
 
         return ForecastResult(
             province=normalized_province,
-            as_of=as_of_date.strftime("%Y-%m-%d"),
+            as_of=requested_as_of.strftime("%Y-%m-%d"),
             model_version=self.metadata.get("model_version", "unknown"),
             forecast=points,
         )
