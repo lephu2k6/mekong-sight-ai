@@ -1,0 +1,176 @@
+{
+  "model_version": "20260228081928",
+  "created_at_utc": "2026-02-28T08:19:28.356175",
+  "horizons": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+  ],
+  "feature_columns": [
+    "sal_t-1",
+    "sal_t-2",
+    "sal_t-3",
+    "sal_t-4",
+    "sal_t-5",
+    "sal_t-6",
+    "sal_t-7",
+    "sal_t-8",
+    "sal_t-9",
+    "sal_t-10",
+    "sal_t-11",
+    "sal_t-12",
+    "sal_t-13",
+    "sal_t-14",
+    "rain_t-1",
+    "rain_t-2",
+    "rain_t-3",
+    "rain_t-4",
+    "rain_t-5",
+    "rain_t-6",
+    "rain_t-7",
+    "temp_t-1",
+    "temp_t-2",
+    "temp_t-3",
+    "temp_t-4",
+    "temp_t-5",
+    "temp_t-6",
+    "temp_t-7",
+    "sal_3d_avg",
+    "sal_7d_avg",
+    "rain_7d_sum",
+    "temp_7d_avg",
+    "month",
+    "day_of_year",
+    "is_dry_season",
+    "province__bac_lieu",
+    "province__ben_tre",
+    "province__ca_mau",
+    "province__kien_giang",
+    "province__soc_trang"
+  ],
+  "numeric_feature_columns": [
+    "sal_t-1",
+    "sal_t-2",
+    "sal_t-3",
+    "sal_t-4",
+    "sal_t-5",
+    "sal_t-6",
+    "sal_t-7",
+    "sal_t-8",
+    "sal_t-9",
+    "sal_t-10",
+    "sal_t-11",
+    "sal_t-12",
+    "sal_t-13",
+    "sal_t-14",
+    "rain_t-1",
+    "rain_t-2",
+    "rain_t-3",
+    "rain_t-4",
+    "rain_t-5",
+    "rain_t-6",
+    "rain_t-7",
+    "temp_t-1",
+    "temp_t-2",
+    "temp_t-3",
+    "temp_t-4",
+    "temp_t-5",
+    "temp_t-6",
+    "temp_t-7",
+    "sal_3d_avg",
+    "sal_7d_avg",
+    "rain_7d_sum",
+    "temp_7d_avg",
+    "month",
+    "day_of_year",
+    "is_dry_season"
+  ],
+  "province_dummy_columns": [
+    "province__bac_lieu",
+    "province__ben_tre",
+    "province__ca_mau",
+    "province__kien_giang",
+    "province__soc_trang"
+  ],
+  "provinces": [
+    "Bac Lieu",
+    "Ben Tre",
+    "Ca Mau",
+    "Kien Giang",
+    "Soc Trang"
+  ],
+  "split": {
+    "train_end_date": "2024-09-10",
+    "val_end_date": "2024-11-01",
+    "train_ratio": 0.7,
+    "val_ratio": 0.15,
+    "test_ratio": 0.15
+  },
+  "best_params": {
+    "day1": {
+      "max_depth": 4,
+      "learning_rate": 0.03,
+      "n_estimators": 300,
+      "subsample": 0.8,
+      "colsample_bytree": 0.8
+    },
+    "day2": {
+      "max_depth": 4,
+      "learning_rate": 0.03,
+      "n_estimators": 300,
+      "subsample": 0.8,
+      "colsample_bytree": 0.8
+    },
+    "day3": {
+      "max_depth": 4,
+      "learning_rate": 0.05,
+      "n_estimators": 300,
+      "subsample": 0.8,
+      "colsample_bytree": 0.8
+    },
+    "day4": {
+      "max_depth": 4,
+      "learning_rate": 0.05,
+      "n_estimators": 300,
+      "subsample": 0.8,
+      "colsample_bytree": 1.0
+    },
+    "day5": {
+      "max_depth": 4,
+      "learning_rate": 0.03,
+      "n_estimators": 300,
+      "subsample": 0.8,
+      "colsample_bytree": 0.8
+    },
+    "day6": {
+      "max_depth": 4,
+      "learning_rate": 0.03,
+      "n_estimators": 300,
+      "subsample": 0.8,
+      "colsample_bytree": 0.8
+    },
+    "day7": {
+      "max_depth": 4,
+      "learning_rate": 0.03,
+      "n_estimators": 300,
+      "subsample": 0.8,
+      "colsample_bytree": 1.0
+    }
+  },
+  "artifacts": {
+    "prepared_daily_csv": "C:\\Users\\Administrator\\Desktop\\Mekong-sight-AI\\Backend\\service\\ai-service\\app\\data\\prepared_daily_dataset.csv",
+    "train_feature_csv": "C:\\Users\\Administrator\\Desktop\\Mekong-sight-AI\\Backend\\service\\ai-service\\app\\data\\train_feature_dataset.csv",
+    "metrics_csv": "C:\\Users\\Administrator\\Desktop\\Mekong-sight-AI\\Backend\\service\\ai-service\\app\\reports\\metrics_summary.csv",
+    "predictions_csv": "C:\\Users\\Administrator\\Desktop\\Mekong-sight-AI\\Backend\\service\\ai-service\\app\\reports\\predictions_test.csv",
+    "report_path": "C:\\Users\\Administrator\\Desktop\\Mekong-sight-AI\\Backend\\service\\ai-service\\app\\reports\\report_ai1.md"
+  },
+  "data_sources": {
+    "weather_csv": "app\\data\\weather_province_daily.csv",
+    "local_dataset": "app\\data\\weather_province_daily.csv",
+    "supabase_fallback": false
+  }
+}

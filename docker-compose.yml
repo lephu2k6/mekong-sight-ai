@@ -1,0 +1,87 @@
+
+
+services:
+  traefik:
+    image: traefik:v2.10
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+    ports:
+      - "80:80"
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+
+  auth-service:
+    build:
+      context: .
+      dockerfile: Backend/service/auth-service/Dockerfile
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.auth.rule=PathPrefix(`/api/auth`)"
+      - "traefik.http.services.auth.loadbalancer.server.port=3000"
+    environment:
+      - REDIS_HOST=redis
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+    depends_on:
+      - redis
+
+  farm-service:
+    build:
+      context: .
+      dockerfile: Backend/service/farm-service/Dockerfile
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.farm.rule=PathPrefix(`/api/farm`)"
+      - "traefik.http.services.farm.loadbalancer.server.port=3001"
+    environment:
+      - REDIS_HOST=redis
+    depends_on:
+      - redis
+
+  iot-service:
+    build:
+      context: .
+      dockerfile: Backend/service/iot-service/Dockerfile
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.iot.rule=PathPrefix(`/api/iot`)"
+      - "traefik.http.services.iot.loadbalancer.server.port=3002"
+    environment:
+      - REDIS_HOST=redis
+      - MQTT_BROKER_URL=mqtt://mqtt-broker:1883
+    depends_on:
+      - redis
+
+  ai-service:
+    build:
+      context: .
+      dockerfile: Backend/service/ai-service/Dockerfile
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.ai.rule=PathPrefix(`/api/ai`)"
+      - "traefik.http.services.ai.loadbalancer.server.port=8000"
+    environment:
+      - REDIS_HOST=redis
+    depends_on:
+      - redis
+
+  notification-service:
+    build:
+      context: .
+      dockerfile: Backend/service/notification-service/Dockerfile
+    environment:
+      - REDIS_HOST=redis
+    depends_on:
+      - redis
+
+volumes:
+  redis_data:

@@ -1,0 +1,19 @@
+{
+	"folders": [
+		{
+			"path": "../New folder"
+		},
+		{
+			"path": "../test"
+		},
+		{
+			"path": "../its"
+		},
+		{
+			"path": "."
+		}
+	],
+	"settings": {
+		"liveServer.settings.multiRootWorkspaceName": "CRUD app"
+	}
+}
