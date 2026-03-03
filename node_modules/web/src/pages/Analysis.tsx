@@ -23,6 +23,7 @@ type ForecastResponse = {
     province: string;
     as_of: string;
     model_version: string;
+    model_set_used?: string;
     forecast: ForecastPoint[];
 };
 
@@ -127,6 +128,21 @@ const buildHeuristicForecast = (readings: any[]): ForecastPoint[] => {
     return forecast;
 };
 
+const getApiErrorDetail = (error: any): string => {
+    return (
+        error?.response?.data?.detail ||
+        error?.response?.data?.message ||
+        error?.message ||
+        'Khong the lay du bao tu AI service.'
+    );
+};
+
+const shouldUseIotFallback = (error: any): boolean => {
+    const status = Number(error?.response?.status || 0);
+    // Network error (no status) or 5xx => allow heuristic fallback.
+    return status === 0 || status >= 500;
+};
+
 export const Analysis: React.FC = () => {
     const [requests, setRequests] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
@@ -189,55 +205,63 @@ export const Analysis: React.FC = () => {
         setForecastError('');
         setForecastNotice('');
         try {
-            const data = await aiService.getForecast7dByFarm(farmId);
-            setForecast(data);
-            setSelectedProvince(data.province || '');
-        } catch (error: any) {
             const farm = sourceFarms.find((item) => item.id === farmId);
             const province = inferProvinceFromFarm(farm);
-            if (!province) {
-                setForecast(null);
-                setSelectedProvince('');
-                setForecastError('Khong suy ra duoc tinh tu thong tin farm (address/farm_code).');
-                setForecastLoading(false);
-                return;
-            }
-            try {
-                const data = await aiService.getForecast7d(province);
-                setForecast(data);
-                setSelectedProvince(data.province || province);
-            } catch (fallbackError: any) {
+            let rootError: any = null;
+
+            // Prefer province-based endpoint because it does not depend on ai-service Supabase setup.
+            if (province) {
                 try {
-                    const readingsResp = await iotService.getReadings();
-                    const farmReadings = (readingsResp?.data || []).filter(
-                        (item: any) => item?.iot_devices?.farm_id === farmId,
-                    );
-                    const heuristic = buildHeuristicForecast(farmReadings);
-                    if (heuristic.length > 0) {
-                        setForecast({
-                            province,
-                            as_of: new Date().toISOString().slice(0, 10),
-                            model_version: 'heuristic-fallback',
-                            forecast: heuristic,
-                        });
-                        setSelectedProvince(province);
-                        setForecastNotice('AI service dang offline. Dang hien thi du bao fallback tu du lieu IoT.');
-                        setForecastError('');
-                    } else {
-                        setForecast(null);
-                        setSelectedProvince(province);
-                        setForecastError('Khong du du lieu IoT de tao du bao fallback.');
-                    }
-                } catch {
-                    setForecast(null);
-                    setSelectedProvince(province);
-                    const detail =
-                        fallbackError?.response?.data?.detail ||
-                        error?.response?.data?.detail ||
-                        'Khong ket noi duoc AI service (localhost:8000).';
-                    setForecastError(detail);
+                    const data = await aiService.getForecast7d(province, undefined, 'champion');
+                    setForecast(data);
+                    setSelectedProvince(data.province || province);
+                    return;
+                } catch (provinceError: any) {
+                    rootError = provinceError;
                 }
             }
+
+            // Fallback to farm endpoint in case province inference is wrong/missing.
+            try {
+                const farmData = await aiService.getForecast7dByFarm(farmId, undefined, 'champion');
+                setForecast(farmData);
+                setSelectedProvince(farmData.province || province || '');
+                return;
+            } catch (farmError: any) {
+                rootError = rootError || farmError;
+            }
+
+            if (!shouldUseIotFallback(rootError)) {
+                setForecast(null);
+                setSelectedProvince(province || '');
+                setForecastError(getApiErrorDetail(rootError));
+                return;
+            }
+
+            const readingsResp = await iotService.getReadings();
+            const farmReadings = (readingsResp?.data || []).filter(
+                (item: any) => item?.iot_devices?.farm_id === farmId,
+            );
+            const heuristic = buildHeuristicForecast(farmReadings);
+            if (heuristic.length > 0) {
+                setForecast({
+                    province: province || 'N/A',
+                    as_of: new Date().toISOString().slice(0, 10),
+                    model_version: 'heuristic-fallback',
+                    model_set_used: 'heuristic',
+                    forecast: heuristic,
+                });
+                setSelectedProvince(province || '');
+                setForecastNotice(`Khong goi duoc AI model (${getApiErrorDetail(rootError)}). Dang hien thi fallback IoT.`);
+                setForecastError('');
+            } else {
+                setForecast(null);
+                setSelectedProvince(province || '');
+                setForecastError(`Khong du du lieu IoT de tao du bao fallback. Loi AI: ${getApiErrorDetail(rootError)}`);
+            }
+        } catch (error: any) {
+            setForecast(null);
+            setForecastError(getApiErrorDetail(error));
         } finally {
             setForecastLoading(false);
         }
@@ -403,6 +427,7 @@ export const Analysis: React.FC = () => {
                             )}
                             <div className="text-secondary" style={{ fontSize: '0.75rem', marginBottom: '0.6rem' }}>
                                 as_of: {forecast.as_of} | model: {forecast.model_version}
+                                {forecast.model_set_used ? ` (${forecast.model_set_used})` : ''}
                             </div>
                             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                                 <thead>

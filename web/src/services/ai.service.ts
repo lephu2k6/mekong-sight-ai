@@ -11,22 +11,28 @@ export const aiService = {
         return response.data;
     },
 
-    getForecast7dByFarm: async (farmId: string, asOf?: string) => {
+    getForecast7dByFarm: async (farmId: string, asOf?: string, modelSet: 'champion' | 'baseline' | 'xgboost' = 'champion') => {
         const params = new URLSearchParams();
         if (asOf) {
             params.append('as_of', asOf);
         }
+        params.append('model_set', modelSet);
         const query = params.toString();
         const suffix = query ? `?${query}` : '';
         const response = await api.get(`/ai/forecast7d/farm/${farmId}${suffix}`);
         return response.data;
     },
 
-    getForecast7d: async (province: string, asOf?: string) => {
+    getForecast7d: async (
+        province: string,
+        asOf?: string,
+        modelSet: 'champion' | 'baseline' | 'xgboost' = 'champion',
+    ) => {
         const params = new URLSearchParams({ province });
         if (asOf) {
             params.append('as_of', asOf);
         }
+        params.append('model_set', modelSet);
         const response = await api.get(`/ai/forecast7d?${params.toString()}`);
         return response.data;
     },
