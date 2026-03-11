@@ -58,9 +58,12 @@ export const aiService = {
         return response.data;
     },
 
-    chat: async (message: string, image?: File) => {
+    chat: async (message: string, image?: File, farmId?: string) => {
         const formData = new FormData();
         formData.append('message', message || "Hãy phân tích hình ảnh này");
+        if (farmId) {
+            formData.append('farm_id', farmId);
+        }
         if (image) {
             formData.append('image', image);
         }

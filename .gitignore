@@ -1,0 +1,24 @@
+# dependencies
+node_modules/
+
+# environment variables
+.env
+.env.local
+.env.*
+.env.*.local
+!.env.example
+
+# python cache
+__pycache__/
+*.py[cod]
+
+# build
+dist/
+build/
+
+# logs
+logs
+*.log
+
+# OS
+.DS_Store

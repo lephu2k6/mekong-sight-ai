@@ -24,7 +24,7 @@ export const config = {
         password: process.env.REDIS_PASSWORD
     },
     jwt: {
-        secret: process.env.JWT_SECRET || 'super-secret-key',
+        secret: process.env.JWT_SECRET,
         expiresIn: '7d'
     }
 };

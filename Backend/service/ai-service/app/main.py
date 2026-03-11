@@ -22,7 +22,6 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from PIL import Image
 from pydantic import BaseModel
 from supabase import Client, create_client
 
@@ -76,27 +75,83 @@ def _require_supabase() -> Client:
 
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-if GEMINI_API_KEY and genai is not None:
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "").strip()
+gemini_model = None
+gemini_model_name = ""
+
+
+def _init_gemini_model():
+    global gemini_model, gemini_model_name
+    if not GEMINI_API_KEY or genai is None:
+        gemini_model = None
+        gemini_model_name = ""
+        print("WARNING: GEMINI_API_KEY not found in environment variables.")
+        return
+
     try:
         genai.configure(api_key=GEMINI_API_KEY)
-        gemini_model = genai.GenerativeModel("gemini-2.5-flash")
-        print("SUCCESS: Gemini AI initialized with model: gemini-2.5-flash")
+        preferred_models = [
+            "models/gemini-2.5-flash",
+            "models/gemini-2.0-flash",
+            "models/gemini-1.5-flash",
+        ]
+        forced_model = GEMINI_MODEL if GEMINI_MODEL else None
+        available = []
+        try:
+            available = list(genai.list_models())
+        except Exception as list_exc:
+            print(f"WARNING: Cannot list Gemini models: {list_exc}")
+
+        chosen = None
+        if available:
+            valid_names = {
+                model.name
+                for model in available
+                if "generateContent" in getattr(model, "supported_generation_methods", [])
+            }
+            if forced_model:
+                if forced_model in valid_names:
+                    chosen = forced_model
+                else:
+                    print(
+                        f"WARNING: Forced Gemini model {forced_model} is unavailable. "
+                        "Will use first available preferred model."
+                    )
+            if not chosen:
+                for name in preferred_models:
+                    if name in valid_names:
+                        chosen = name
+                        break
+            if not chosen and valid_names:
+                chosen = sorted(valid_names)[0]
+        else:
+            # If list_models is unavailable, still try a deterministic fallback order.
+            chosen = forced_model or preferred_models[1]
+
+        if not chosen:
+            raise RuntimeError(
+                "No Gemini model with generateContent is available for this API key/project."
+            )
+
+        gemini_model = genai.GenerativeModel(chosen)
+        gemini_model_name = chosen
+        print(f"SUCCESS: Gemini AI initialized with model: {chosen}")
     except Exception as exc:
         print(f"ERROR: Failed to initialize Gemini: {exc}")
         gemini_model = None
-else:
-    gemini_model = None
-    print("WARNING: GEMINI_API_KEY not found in environment variables.")
+        gemini_model_name = ""
+
+
+_init_gemini_model()
 
 
 SYSTEM_PROMPT = """
-Bạn là một chuyên gia nông nghiệp hàng đầu tại Đồng bằng sông Cửu Long.
-Nhiệm vụ của bạn là hỗ trợ nông dân phân tích hình ảnh về tôm và lúa.
-1. Nếu thấy dấu hiệu bệnh, hãy gọi tên bệnh và giải thích nguyên nhân.
-2. Đưa ra hướng xử lý thực tế, ưu tiên bền vững và chế phẩm sinh học.
-3. Dùng ngôn ngữ gần gũi, chân chất với nông dân.
-4. Nếu ảnh mờ hoặc thiếu dữ kiện, hướng dẫn cách chụp lại rõ hơn.
-5. Nếu không phải ảnh nông nghiệp, từ chối nhẹ nhàng.
+Bạn là trợ lý ngôn ngữ tự nhiên cho nông dân tôm-lúa vùng ĐBSCL.
+Nhiệm vụ: trả lời câu hỏi về độ mặn, rủi ro, khuyến nghị vận hành dựa trên dữ liệu AI1/AI2/AI3 cung cấp trong ngữ cảnh.
+Nguyên tắc:
+- Chỉ dùng số liệu trong ngữ cảnh; nếu thiếu hãy nói rõ thiếu gì và gợi ý kiểm tra lại.
+- Ưu tiên trả lời ngắn gọn, tiếng Việt dễ hiểu, tránh thuật ngữ khó.
+- Nếu câu hỏi ngoài phạm vi (ví dụ chẩn đoán bệnh từ hình ảnh), hãy lịch sự báo không hỗ trợ.
 """
 
 
@@ -764,23 +819,135 @@ async def get_analysis_history(farm_id: str):
 
 
 @app.post("/api/ai/chat")
-async def chat_with_image(message: str = Form(...), image: UploadFile = File(None)):
-    if not GEMINI_API_KEY or gemini_model is None:
+async def chat_with_image(
+    message: str = Form(...),
+    farm_id: Optional[str] = Form(None),
+    image: UploadFile = File(None),  # giữ tham số để không phá FE cũ, nhưng bỏ xử lý ảnh
+):
+    if not GEMINI_API_KEY:
         return {"success": False, "message": "Gemini API Key is not configured"}
+    if gemini_model is None:
+        _init_gemini_model()
+    if gemini_model is None:
+        return {"success": False, "message": "Gemini model chưa sẵn sàng."}
     try:
-        content = [SYSTEM_PROMPT, message]
-        if image:
-            image_data = await image.read()
-            img = Image.open(io.BytesIO(image_data))
-            content.append(img)
+        content = [SYSTEM_PROMPT]
+
+        # Inject farm-specific AI1/AI2/AI3 context so Gemini can answer
+        # practical questions like "2 ngày nữa độ mặn bao nhiêu?".
+        if farm_id:
+            try:
+                client = _require_supabase()
+                farm_res = (
+                    client.table("farms")
+                    .select("id,farm_name,address,farm_code,farm_type")
+                    .eq("id", farm_id)
+                    .single()
+                    .execute()
+                )
+                farm = farm_res.data
+                if farm:
+                    province = _infer_province_from_farm(farm)
+                    dt_now = datetime.now()
+                    season_res = (
+                        client.table("seasons")
+                        .select("season_type,start_date")
+                        .eq("farm_id", farm_id)
+                        .eq("status", "active")
+                        .limit(1)
+                        .execute()
+                    )
+                    season = (season_res.data or [{}])[0] if season_res.data else {}
+                    season_type = str(season.get("season_type") or "").lower()
+                    crop_mode = "shrimp" if season_type == "shrimp" else "rice"
+                    start_date_raw = season.get("start_date")
+                    try:
+                        start_date = datetime.fromisoformat(str(start_date_raw).split("T")[0])
+                    except Exception:
+                        start_date = dt_now - timedelta(days=45)
+                    age_days = max(0, (dt_now.date() - start_date.date()).days)
+                    stage = "early" if age_days < 30 else "mid" if age_days < 75 else "late"
+
+                    ai1 = None
+                    if province:
+                        try:
+                            ai1 = get_forecast_service().forecast(
+                                province=province,
+                                as_of=dt_now.strftime("%Y-%m-%d"),
+                                model_set="champion",
+                            )
+                        except Exception:
+                            ai1 = None
+
+                    ai2 = None
+                    try:
+                        ai2 = _predict_ai2_for_farm(client, farm_id, farm)
+                    except Exception:
+                        ai2 = None
+
+                    ai3 = None
+                    if ai1 and ai2:
+                        try:
+                            forecast_points = [ForecastPointResponse(**point.__dict__) for point in ai1.forecast]
+                            ai3 = _build_ai3_decision(
+                                crop_mode=crop_mode,
+                                stage=stage,
+                                forecast_points=forecast_points,
+                                risk_label=str(ai2.get("risk_label", "Medium")),
+                                risk_score=ai2.get("risk_score"),
+                                current_date=dt_now,
+                            )
+                        except Exception:
+                            ai3 = None
+
+                    ai_context = {
+                        "farm": {
+                            "id": farm.get("id"),
+                            "name": farm.get("farm_name"),
+                            "type": farm.get("farm_type"),
+                            "province": province,
+                            "crop_mode": crop_mode,
+                            "season_stage": stage,
+                        },
+                        "ai1_forecast_7d": (
+                            [
+                                {
+                                    "day_ahead": int(p.day_ahead),
+                                    "date": str(p.date),
+                                    "salinity_pred": float(p.salinity_pred),
+                                }
+                                for p in ai1.forecast
+                            ]
+                            if ai1
+                            else None
+                        ),
+                        "ai2_risk": ai2,
+                        "ai3_decision": ai3,
+                    }
+                    content.append(
+                        "Ngữ cảnh dữ liệu farm (JSON) để trả lời chính xác, không bịa số:\n"
+                        + json.dumps(ai_context, ensure_ascii=False)
+                    )
+            except Exception as exc:
+                content.append(f"Không tải được dữ liệu farm_id={farm_id}: {exc}")
+
+        content.append(
+            "Yêu cầu trả lời: dùng tiếng Việt gần gũi nông dân, ưu tiên số liệu trong ngữ cảnh; "
+            "nếu thiếu dữ liệu thì nói rõ thiếu gì."
+        )
+        content.append(message)
         response = gemini_model.generate_content(content)
         return {
             "success": True,
             "reply": response.text,
+            "model": gemini_model_name,
             "timestamp": datetime.now().isoformat(),
         }
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        error_text = str(exc)
+        if "not found" in error_text.lower() and "models/" in error_text.lower():
+            _init_gemini_model()
+        return {"success": False, "message": f"Gemini error: {error_text}"}
 
 
 async def process_analysis(farm_id: str, analysis_type: str):
