@@ -19,8 +19,8 @@ export const config = {
         serviceKey: process.env.SUPABASE_SERVICE_ROLE_KEY
     },
     redis: {
-        host: process.env.REDIS_HOST || 'localhost',
-        port: parseInt(process.env.REDIS_PORT || '6379', 10),
+        host: process.env.REDIS_HOST,
+        port: parseInt(process.env.REDIS_PORT || '0', 10),
         password: process.env.REDIS_PASSWORD
     },
     jwt: {

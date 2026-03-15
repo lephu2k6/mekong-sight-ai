@@ -6,6 +6,12 @@ let redisInstance: Redis | null = null;
 
 export const getRedisClient = (): Redis => {
     if (!redisInstance) {
+        if (!config.redis.host || !config.redis.port || !config.redis.password) {
+            throw new Error(
+                'Redis cloud configuration is required. Set REDIS_HOST, REDIS_PORT, and REDIS_PASSWORD.'
+            );
+        }
+
         redisInstance = new Redis({
             host: config.redis.host,
             port: config.redis.port,

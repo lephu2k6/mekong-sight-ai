@@ -10,6 +10,9 @@ const logger_1 = require("../utils/logger");
 let redisInstance = null;
 const getRedisClient = () => {
     if (!redisInstance) {
+        if (!config_1.config.redis.host || !config_1.config.redis.port || !config_1.config.redis.password) {
+            throw new Error('Redis cloud configuration is required. Set REDIS_HOST, REDIS_PORT, and REDIS_PASSWORD.');
+        }
         redisInstance = new ioredis_1.default({
             host: config_1.config.redis.host,
             port: config_1.config.redis.port,

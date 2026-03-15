@@ -36,3 +36,13 @@ export interface Alert {
     resolved: boolean;
     created_at: Date;
 }
+export interface Season {
+    id: string;
+    farm_id: string;
+    season_type: 'shrimp' | 'rice';
+    start_date: Date;
+    expected_end_date?: Date;
+    variety: string;
+    status: 'active' | 'completed';
+    created_at: Date;
+}

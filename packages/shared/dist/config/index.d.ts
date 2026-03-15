@@ -7,12 +7,12 @@ export declare const config: {
         serviceKey: string | undefined;
     };
     redis: {
-        host: string;
+        host: string | undefined;
         port: number;
         password: string | undefined;
     };
     jwt: {
-        secret: string;
+        secret: string | undefined;
         expiresIn: string;
     };
 };
