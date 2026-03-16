@@ -215,7 +215,7 @@ export const AdminStations: React.FC = () => {
                         </div>
                     </div>
                     <div style={{ overflowX: 'auto' }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                        <table className="admin-data-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
                             <thead>
                                 <tr style={{ background: 'var(--bg-light)', borderBottom: '1px solid var(--border-light)' }}>
                                     <th style={{ padding: '1.2rem' }}>Tên trạm</th>
@@ -243,11 +243,13 @@ export const AdminStations: React.FC = () => {
                                     stations.map((s: any) => (
                                         <tr key={s.id} style={{ borderBottom: '1px solid var(--border-light)' }} className="table-row-hover">
                                             <td style={{ padding: '1.2rem' }}>
-                                                <div className="flex items-center gap-3">
-                                                    <div style={{ width: 40, height: 40, borderRadius: '10px', background: 'linear-gradient(135deg, var(--accent-teal) 0%, var(--primary-green) 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white' }}>
+                                                <div className="admin-entity-cell">
+                                                    <div className="admin-entity-icon" style={{ background: 'linear-gradient(135deg, var(--accent-teal) 0%, var(--primary-green) 100%)', color: 'white' }}>
                                                         <Radio size={20} />
                                                     </div>
-                                                    <p style={{ fontWeight: 600 }}>{s.farm_name}</p>
+                                                    <div className="admin-entity-copy">
+                                                        <h4>{s.farm_name}</h4>
+                                                    </div>
                                                 </div>
                                             </td>
                                             <td style={{ padding: '1.2rem', fontSize: '0.85rem' }}>

@@ -1,340 +1,588 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { farmService } from '../services/farm.service';
 import { aiService } from '../services/ai.service';
 import { iotService } from '../services/iot.service';
-import { Droplets, Thermometer, Wind, TrendingUp, History, Loader2, Database, RefreshCcw, Brain, Sun, CloudRain, Sparkles } from 'lucide-react';
+import {
+  Brain,
+  CircleAlert,
+  CloudRain,
+  Database,
+  Droplets,
+  History,
+  Leaf,
+  Loader2,
+  PencilLine,
+  RefreshCcw,
+  Sparkles,
+  Sun,
+  Thermometer,
+  Wind,
+} from 'lucide-react';
 import { Gauge } from '../components/Gauge';
+import { PageHero } from '../components/PageHero';
+import { RealtimeClock } from '../components/RealtimeClock';
+import { QuickActionCard } from '../components/QuickActionCard';
+import { SectionCard } from '../components/SectionCard';
+import { StatusBadge } from '../components/StatusBadge';
+import { EmptyState } from '../components/EmptyState';
+
+const CROP_OPTIONS = ['Tôm', 'Lúa', 'Tôm - Lúa'];
+
+const VARIETY_OPTIONS: Record<string, string[]> = {
+  'Tôm': ['Tôm Sú (Quảng canh)', 'Tôm thẻ chân trắng', 'Tôm quảng canh cải tiến'],
+  'Lúa': ['ST24', 'ST25', 'OM18'],
+  'Tôm - Lúa': ['Mô hình luân canh chuẩn', 'Tôm Sú + ST25', 'Tôm Sú + ST24'],
+};
+
+const toNumber = (value: any, fallback = 0) => {
+  const next = Number(value);
+  return Number.isFinite(next) ? next : fallback;
+};
+
+const getFarmCropLabel = (farmType?: string) => {
+  const normalized = String(farmType || '').toLowerCase();
+  if (normalized.includes('shrimp') && normalized.includes('rice')) return 'Tôm - Lúa';
+  if (normalized.includes('rice')) return 'Lúa';
+  if (normalized.includes('shrimp')) return 'Tôm';
+  return 'Tôm';
+};
+
+const getSeasonLength = (cropType: string) => {
+  if (cropType === 'Lúa') return 120;
+  if (cropType === 'Tôm - Lúa') return 140;
+  return 100;
+};
+
+const getSeasonStage = (cropType: string, days: number) => {
+  if (cropType === 'Lúa') {
+    if (days <= 25) return 'Mạ non (1-25 ngày)';
+    if (days <= 60) return 'Đẻ nhánh (26-60 ngày)';
+    if (days <= 95) return 'Làm đòng - trổ (61-95 ngày)';
+    return 'Chín và chuẩn bị thu hoạch';
+  }
+
+  if (cropType === 'Tôm - Lúa') {
+    if (days <= 30) return 'Chuẩn bị nền vụ';
+    if (days <= 75) return 'Giai đoạn phát triển ổn định';
+    if (days <= 110) return 'Theo dõi chuyển vụ';
+    return 'Sẵn sàng thu hoạch hoặc luân canh';
+  }
+
+  if (days <= 30) return 'Tôm giống (1-30 ngày)';
+  if (days <= 60) return 'Tôm con (31-60 ngày)';
+  if (days <= 85) return 'Tôm phát triển mạnh';
+  return 'Chuẩn bị thu hoạch';
+};
+
+const getWeatherLabel = (code?: number) => {
+  if (typeof code !== 'number') return 'Chưa có dữ liệu thời tiết';
+  if (code <= 3) return 'Trời quang hoặc ít mây';
+  if (code <= 61) return 'Có mưa nhẹ hoặc âm u';
+  return 'Mưa nhiều, cần theo dõi thêm';
+};
+
+const getEnvironmentStatus = (reading?: any) => {
+  if (!reading) {
+    return {
+      label: 'Chưa có dữ liệu',
+      tone: 'neutral' as const,
+      summary: 'Hệ thống đang chờ dữ liệu cảm biến để đánh giá môi trường.',
+      tips: ['Kiểm tra thiết bị cảm biến.', 'Làm mới dữ liệu sau vài giây.'],
+    };
+  }
+
+  const salinity = toNumber(reading.salinity);
+  const ph = toNumber(reading.ph, 7);
+  const temperature = toNumber(reading.temperature, 28);
+
+  if (salinity >= 25 || ph < 6.5 || ph > 8.5 || temperature >= 34) {
+    return {
+      label: 'Cảnh báo',
+      tone: 'warning' as const,
+      summary: 'Môi trường có chỉ số vượt ngưỡng an toàn, cần ưu tiên kiểm tra nước và cống cấp thoát.',
+      tips: [
+        'Hạn chế lấy thêm nước mặn vào ao trong thời điểm này.',
+        'Đo lại độ mặn và pH sau 1 đến 2 giờ.',
+        'Theo dõi phản ứng của tôm hoặc lúa trong ngày hôm nay.',
+      ],
+    };
+  }
+
+  if (salinity >= 10 || temperature >= 31 || ph < 6.8 || ph > 8.2) {
+    return {
+      label: 'Cần lưu ý',
+      tone: 'watch' as const,
+      summary: 'Chỉ số đang ở vùng nhạy cảm, nên theo dõi sát để tránh biến động bất ngờ.',
+      tips: [
+        'Giữ lịch đo cảm biến đều trong ngày.',
+        'Quan sát màu nước và hoạt động của tôm.',
+        'Chuẩn bị phương án điều tiết nước khi trời đổi nhanh.',
+      ],
+    };
+  }
+
+  return {
+    label: 'Ổn định',
+    tone: 'safe' as const,
+    summary: 'Các chỉ số chính đang trong vùng thuận lợi cho canh tác và nuôi trồng.',
+    tips: [
+      'Tiếp tục theo dõi thường xuyên.',
+      'Giữ nhịp vận hành như hiện tại.',
+      'Cập nhật mùa vụ để AI gợi ý sát hơn.',
+    ],
+  };
+};
 
 export const Dashboard: React.FC = () => {
-    const [loading, setLoading] = useState(true);
-    const [refreshing, setRefreshing] = useState(false);
-    const [analyzing, setAnalyzing] = useState(false);
-    const [readings, setReadings] = useState<any[]>([]);
-    const [farms, setFarms] = useState<any[]>([]);
-    const [recommendation, setRecommendation] = useState<any>(null);
-    const [selectedFarmId, setSelectedFarmId] = useState<string>('');
-    const [weather, setWeather] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [readings, setReadings] = useState<any[]>([]);
+  const [farms, setFarms] = useState<any[]>([]);
+  const [recommendation, setRecommendation] = useState<any>(null);
+  const [selectedFarmId, setSelectedFarmId] = useState<string>('');
+  const [weather, setWeather] = useState<any>(null);
+  const [currentTime, setCurrentTime] = useState(new Date());
+  const [selectedCrop, setSelectedCrop] = useState('Tôm');
+  const [selectedVariety, setSelectedVariety] = useState(VARIETY_OPTIONS['Tôm'][0]);
 
-    const fetchData = async () => {
-        setRefreshing(true);
+  const fetchData = async () => {
+    setRefreshing(true);
+    try {
+      const farmData = await farmService.getMyFarms();
+      const farmList = farmData.data || [];
+      setFarms(farmList);
+
+      let currentId = selectedFarmId;
+      if (!currentId && farmList.length > 0) {
+        currentId = farmList[0].id;
+        setSelectedFarmId(currentId);
+      }
+
+      const currentFarm = farmList.find((farm: any) => farm.id === currentId) || farmList[0];
+      if (currentFarm) {
+        setSelectedCrop(getFarmCropLabel(currentFarm.farm_type));
+      }
+
+      const sensorData = await iotService.getReadings();
+      const allReadings = sensorData.data || [];
+      const farmReadings = allReadings
+        .filter((item: any) => item?.iot_devices?.farm_id === currentId)
+        .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      setReadings(farmReadings);
+
+      if (currentId) {
         try {
-            const farmData = await farmService.getMyFarms();
-            const farmlist = farmData.data || [];
-            setFarms(farmlist);
-
-            // Auto-select first farm
-            let currentId = selectedFarmId;
-            if (!currentId && farmlist.length > 0) {
-                currentId = farmlist[0].id;
-                setSelectedFarmId(currentId);
-            }
-
-            const sensorData = await iotService.getReadings();
-            const allReadings = sensorData.data || [];
-
-            // Filter readings
-            const farmReadings = allReadings.filter((r: any) => r.iot_devices?.farm_id === currentId);
-            setReadings(farmReadings);
-
-            if (currentId) {
-                const recData = await aiService.getRecommendations(currentId);
-                if (recData.data) {
-                    setRecommendation(recData.data);
-                } else {
-                    setRecommendation(null);
-                }
-            }
-
-            // We don't need to manually setStats anymore as we use readings[0] directly in JSX
-        } catch (err) {
-            console.error("Dashboard fetch error:", err);
-        } finally {
-            setLoading(false);
-            setRefreshing(false);
+          const recData = await aiService.getRecommendations(currentId);
+          setRecommendation(recData.data || null);
+        } catch {
+          setRecommendation(null);
         }
+      } else {
+        setRecommendation(null);
+      }
+    } catch (err) {
+      console.error('Dashboard fetch error:', err);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  const runAI = async () => {
+    if (!selectedFarmId) return;
+    setAnalyzing(true);
+    try {
+      await aiService.analyze(selectedFarmId, 'salinity_forecast');
+      setTimeout(fetchData, 2000);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setTimeout(() => setAnalyzing(false), 2000);
+    }
+  };
+
+  const seedData = async () => {
+    if (!confirm('Khởi tạo dữ liệu mẫu cho vùng lúa - tôm?')) return;
+    setRefreshing(true);
+    try {
+      await farmService.createFarm({
+        farm_name: 'Lô ST25 thực nghiệm',
+        area_hectares: 2.5,
+        farm_type: 'shrimp_rice',
+      });
+      fetchData();
+    } catch (err: any) {
+      console.error('Seed error:', err);
+      const msg = err.response?.data?.message || err.message || 'Không xác định';
+      alert(`Lỗi khi tạo dữ liệu mẫu: ${msg}`);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const selectedFarm = useMemo(
+    () => farms.find((farm: any) => farm.id === selectedFarmId),
+    [farms, selectedFarmId]
+  );
+
+  const latestReading = useMemo(() => readings[0], [readings]);
+  const environmentStatus = useMemo(() => getEnvironmentStatus(latestReading), [latestReading]);
+
+  const seasonStart = useMemo(() => {
+    const source = selectedFarm?.created_at || selectedFarm?.updated_at;
+    const parsed = source ? new Date(source) : new Date(Date.now() - 37 * 24 * 60 * 60 * 1000);
+    return Number.isNaN(parsed.getTime()) ? new Date(Date.now() - 37 * 24 * 60 * 60 * 1000) : parsed;
+  }, [selectedFarm]);
+
+  const seasonDays = Math.max(
+    1,
+    Math.floor((currentTime.getTime() - seasonStart.getTime()) / (24 * 60 * 60 * 1000)) + 1
+  );
+  const seasonLength = getSeasonLength(selectedCrop);
+  const seasonProgress = Math.min(100, Math.max(5, Math.round((seasonDays / seasonLength) * 100)));
+  const harvestDate = new Date(seasonStart.getTime() + seasonLength * 24 * 60 * 60 * 1000);
+  const seasonAdvice = recommendation?.recommended_action || environmentStatus.tips[0] || 'Tiếp tục theo dõi thường xuyên.';
+  const currentVarieties = VARIETY_OPTIONS[selectedCrop] || VARIETY_OPTIONS['Tôm'];
+
+  useEffect(() => {
+    if (!selectedFarmId) {
+      setWeather(null);
+      return;
+    }
+
+    const fetchWeather = async () => {
+      let lat = 9.294;
+      let lon = 105.721;
+      const farm = farms.find((item: any) => item.id === selectedFarmId);
+
+      if (farm) {
+        if (farm.latitude && farm.longitude) {
+          lat = parseFloat(farm.latitude);
+          lon = parseFloat(farm.longitude);
+        } else if (farm.geometry?.coordinates) {
+          if (farm.geometry.type === 'Point') {
+            lat = farm.geometry.coordinates[1];
+            lon = farm.geometry.coordinates[0];
+          } else if (farm.geometry.type === 'Polygon') {
+            const point = farm.geometry.coordinates[0][0];
+            lat = point[1];
+            lon = point[0];
+          }
+        }
+      }
+
+      try {
+        const res = await fetch(
+          `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&timezone=Asia%2FBangkok`
+        );
+        const data = await res.json();
+        setWeather(data.current_weather);
+      } catch (error) {
+        console.error('Weather fetch error', error);
+      }
     };
 
-    const runAI = async () => {
-        if (farms.length === 0) return;
-        setAnalyzing(true);
-        try {
-            await aiService.analyze(farms[0].id, 'salinity_forecast');
-            // Wait a bit then refresh
-            setTimeout(fetchData, 2000);
-        } catch (err) {
-            console.error(err);
-        } finally {
-            setTimeout(() => setAnalyzing(false), 2000);
-        }
-    };
+    fetchWeather();
+    const interval = setInterval(fetchWeather, 600000);
+    return () => clearInterval(interval);
+  }, [selectedFarmId, farms]);
 
-    const seedData = async () => {
-        if (!confirm('Khởi tạo dữ liệu mẫu cho vùng lúa - tôm?')) return;
-        setRefreshing(true);
-        try {
-            const farmData = {
-                farm_name: "Lô ST25 Thực nghiệm",
-                area_hectares: 2.5,
-                farm_type: "shrimp_rice"
-            };
-            await farmService.createFarm(farmData);
-            fetchData();
-        } catch (err: any) {
-            console.error("Seed error:", err);
-            const msg = err.response?.data?.message || err.message || 'Không xách định';
-            alert(`Lỗi khi tạo dữ liệu mẫu: ${msg}`);
-        } finally {
-            setRefreshing(false);
-        }
-    };
+  useEffect(() => {
+    fetchData();
+    const interval = setInterval(fetchData, 5000);
+    return () => clearInterval(interval);
+  }, [selectedFarmId]);
 
-    // Weather Effect
-    useEffect(() => {
-        if (!selectedFarmId) { setWeather(null); return; }
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
-        const fetchWeather = async () => {
-            // Default Mekong Delta (Bac Lieu)
-            let lat = 9.294, lon = 105.721;
+  useEffect(() => {
+    const nextVariety = VARIETY_OPTIONS[selectedCrop]?.[0];
+    if (nextVariety && !VARIETY_OPTIONS[selectedCrop]?.includes(selectedVariety)) {
+      setSelectedVariety(nextVariety);
+    }
+  }, [selectedCrop, selectedVariety]);
 
-            // Try to find farm location
-            const farm = farms.find(f => f.id === selectedFarmId);
-
-            if (farm) {
-                if (farm.latitude && farm.longitude) {
-                    lat = parseFloat(farm.latitude);
-                    lon = parseFloat(farm.longitude);
-                } else if (farm.geometry && farm.geometry.coordinates) {
-                    // Handle Point vs Polygon
-                    if (farm.geometry.type === 'Point') {
-                        lat = farm.geometry.coordinates[1];
-                        lon = farm.geometry.coordinates[0];
-                    } else if (farm.geometry.type === 'Polygon') {
-                        const p = farm.geometry.coordinates[0][0];
-                        lat = p[1];
-                        lon = p[0];
-                    }
-                }
-            }
-
-            try {
-                const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&timezone=Asia%2FBangkok`);
-                const data = await res.json();
-                setWeather(data.current_weather);
-            } catch (e) { console.error("Weather fetch error", e); }
-        };
-
-        fetchWeather();
-        const interval = setInterval(fetchWeather, 600000); // 10 mins
-        return () => clearInterval(interval);
-    }, [selectedFarmId, farms]);
-
-    useEffect(() => {
-        fetchData();
-        const interval = setInterval(fetchData, 2000); // Poll every 2s for realtime feel
-        return () => clearInterval(interval);
-    }, [selectedFarmId]);
-
-    if (loading) return (
-        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
-            <Loader2 className="animate-spin" size={40} color="var(--primary-glow)" />
-        </div>
-    );
-
+  if (loading) {
     return (
-        <div style={{ animation: 'fadeIn 0.5s ease-out' }}>
-            <div className="flex justify-between items-center" style={{ marginBottom: '2.5rem' }}>
-                <div>
-                    <h1 style={{ marginBottom: '0.5rem' }}>Bảng điều khiển</h1>
-                    <p className="text-secondary">Giám sát theo thời gian thực và Khuyến nghị AI thông minh.</p>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center' }}>
-                    {farms.length > 0 && (
-                        <select
-                            value={selectedFarmId}
-                            onChange={(e) => {
-                                setSelectedFarmId(e.target.value);
-                            }}
-                            className="glass-card"
-                            style={{
-                                padding: '10px 16px', borderRadius: '12px', border: '1px solid var(--border-light)',
-                                outline: 'none', cursor: 'pointer', fontWeight: 600, minWidth: '220px',
-                                color: 'var(--primary-dark)', boxShadow: 'var(--shadow-sm)',
-                                marginRight: '1rem'
-                            }}
-                        >
-                            {farms.map(f => (
-                                <option key={f.id} value={f.id}>{f.farm_name}</option>
-                            ))}
-                        </select>
-                    )}
-
-                    <div style={{ display: 'flex', gap: '1rem' }}>
-                        <button className="secondary" onClick={fetchData} disabled={refreshing}>
-                            <RefreshCcw size={18} className={refreshing ? 'animate-spin' : ''} />
-                        </button>
-                        <button className="primary" onClick={seedData}>
-                            <Database size={18} /> Mẫu Lúa-Tôm
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            {/* === TOP CARDS GRID === */}
-            <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(4, 1fr)',
-                gap: '1.5rem',
-                marginBottom: '1.5rem'
-            }}>
-                {/* Card 1: Độ mặn */}
-                <div className="card glass-card" style={{ padding: '1.5rem', textAlign: 'center' }}>
-                    <div style={{ display: 'inline-flex', padding: '10px', background: 'rgba(59, 130, 246, 0.1)', borderRadius: '50%', marginBottom: '1rem' }}>
-                        <Droplets size={24} color="#3b82f6" />
-                    </div>
-                    <Gauge value={readings[0]?.salinity ? parseFloat(readings[0].salinity) : 0} max={35} label="Độ mặn" unit="‰" color="#3b82f6" threshold={2} />
-                </div>
-
-                {/* Card 2: Độ pH */}
-                <div className="card glass-card" style={{ padding: '1.5rem', textAlign: 'center' }}>
-                    <div style={{ display: 'inline-flex', padding: '10px', background: 'rgba(16, 185, 129, 0.1)', borderRadius: '50%', marginBottom: '1rem' }}>
-                        <Wind size={24} color="#10b981" />
-                    </div>
-                    <Gauge value={readings[0]?.ph ? parseFloat(readings[0].ph) : 7} max={14} label="Độ pH" unit="" color="#10b981" />
-                </div>
-
-                {/* Card 3: Nhiệt độ nước */}
-                <div className="card glass-card" style={{ padding: '1.5rem', textAlign: 'center' }}>
-                    <div style={{ display: 'inline-flex', padding: '10px', background: 'rgba(245, 158, 11, 0.1)', borderRadius: '50%', marginBottom: '1rem' }}>
-                        <Thermometer size={24} color="#f59e0b" />
-                    </div>
-                    <Gauge value={readings[0]?.temperature ? parseFloat(readings[0].temperature) : 25} max={50} label="Nhiệt độ nước" unit="°C" color="#f59e0b" />
-                </div>
-
-                {/* Card 4: Tổng quan + Thời tiết - SIMPLE VERSION */}
-                <div className="card glass-card" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                    {/* Top: Area Info */}
-                    <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
-                            <TrendingUp size={16} color="#8b5cf6" />
-                            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Tổng quan</span>
-                        </div>
-                        <div style={{ fontSize: '2rem', fontWeight: 700, lineHeight: 1 }}>
-                            {farms.find(f => f.id === selectedFarmId)?.area_hectares || 0}
-                            <span style={{ fontSize: '0.9rem', fontWeight: 500, color: 'var(--text-secondary)', marginLeft: '4px' }}>ha</span>
-                        </div>
-                        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {farms.find(f => f.id === selectedFarmId)?.farm_name || '---'}
-                        </div>
-                        <span style={{ display: 'inline-block', marginTop: '8px', padding: '3px 8px', fontSize: '0.65rem', fontWeight: 600, color: '#10b981', background: 'rgba(16, 185, 129, 0.1)', borderRadius: '4px' }}>
-                            HOẠT ĐỘNG
-                        </span>
-                    </div>
-
-                    {/* Bottom: Weather */}
-                    {weather && (
-                        <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                {weather.weathercode <= 3 ? <Sun size={24} color="#f59e0b" /> : <CloudRain size={24} color="#3b82f6" />}
-                                <div>
-                                    <div style={{ fontSize: '1.1rem', fontWeight: 700 }}>{weather.temperature}°C</div>
-                                    <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>Không khí · Gió {weather.windspeed} km/h</div>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                </div>
-            </div>
-
-            {/* === BOTTOM SECTION === */}
-            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1.5rem' }}>
-
-                {/* History Table */}
-                <div className="card glass-card" style={{ minHeight: '400px' }}>
-                    <div className="flex justify-between items-center mb-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '1rem' }}>
-                        <h3 style={{ margin: 0, fontSize: '1.2rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <History size={20} color="#3b82f6" /> Lịch sử đo lường
-                        </h3>
-                        <button className="secondary" style={{ fontSize: '0.8rem' }}>Xem tất cả</button>
-                    </div>
-
-                    <div style={{ overflowX: 'auto' }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                            <thead>
-                                <tr style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', textAlign: 'left' }}>
-                                    <th style={{ padding: '12px' }}>Thời gian</th>
-                                    <th style={{ padding: '12px' }}>Thiết bị</th>
-                                    <th style={{ padding: '12px' }}>Chỉ số (Mặn - pH - Nhiệt)</th>
-                                    <th style={{ padding: '12px', textAlign: 'right' }}>Trạng thái</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {readings.length === 0 ? (
-                                    <tr><td colSpan={4} style={{ padding: '2rem', textAlign: 'center' }}>Đang tải dữ liệu...</td></tr>
-                                ) : (
-                                    readings.slice(0, 8).map((r, i) => (
-                                        <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                                            <td style={{ padding: '12px', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-                                                {new Date(r.timestamp).toLocaleTimeString()}
-                                            </td>
-                                            <td style={{ padding: '12px', fontWeight: 500 }}>
-                                                {r.iot_devices?.device_name || 'Cảm biến ' + (i + 1)}
-                                            </td>
-                                            <td style={{ padding: '12px' }}>
-                                                <div style={{ display: 'flex', gap: '15px' }}>
-                                                    <span style={{ color: r.salinity > 25 ? '#ef4444' : '#3b82f6', fontWeight: 600 }}>{r.salinity}‰</span>
-                                                    <span style={{ color: 'var(--text-dim)' }}>{r.ph}</span>
-                                                    <span style={{ color: '#f59e0b' }}>{r.temperature}°C</span>
-                                                </div>
-                                            </td>
-                                            <td style={{ padding: '12px', textAlign: 'right' }}>
-                                                {parseFloat(r.salinity) > 30 ?
-                                                    <span style={{ color: '#ef4444', background: 'rgba(239, 68, 68, 0.1)', padding: '4px 8px', borderRadius: '4px', fontSize: '12px' }}>Cảnh báo</span> :
-                                                    <span style={{ color: '#10b981', background: 'rgba(16, 185, 129, 0.1)', padding: '4px 8px', borderRadius: '4px', fontSize: '12px' }}>Ổn định</span>
-                                                }
-                                            </td>
-                                        </tr>
-                                    ))
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-                {/* AI Advisor - Clean Version */}
-                <div className="card glass-card flex flex-col" style={{ minHeight: '400px' }}>
-                    <div className="flex items-center gap-2 mb-4" style={{ paddingBottom: '1rem', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-                        <Brain size={24} color="#10b981" />
-                        <h3 style={{ margin: 0, fontSize: '1.2rem' }}>Trợ lý AI</h3>
-                    </div>
-
-                    {!recommendation ? (
-                        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', opacity: 0.6 }}>
-                            <p>Chưa có dữ liệu phân tích</p>
-                            <button className="primary mt-4" onClick={runAI} disabled={analyzing}>Phân tích ngay</button>
-                        </div>
-                    ) : (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', height: '100%' }}>
-                            <div style={{ padding: '1rem', background: 'rgba(16, 185, 129, 0.1)', borderRadius: '12px', borderLeft: '4px solid #10b981' }}>
-                                <h4 style={{ margin: '0 0 8px 0', fontSize: '0.9rem', textTransform: 'uppercase', color: '#10b981', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    <Sparkles size={14} /> Khuyến nghị
-                                </h4>
-                                <p style={{ fontSize: '1.1rem', fontWeight: 600, margin: 0, color: 'var(--text-normal)' }}>{recommendation.recommended_action}</p>
-                            </div>
-
-                            <div style={{ flex: 1, padding: '1rem', background: 'rgba(255,255,255,0.03)', borderRadius: '12px' }}>
-                                <p style={{ fontSize: '0.95rem', lineHeight: 1.6, color: 'var(--text-secondary)', fontStyle: 'italic' }}>
-                                    "{recommendation.explanation}"
-                                </p>
-                            </div>
-
-                            <button className="primary w-full" onClick={runAI} disabled={analyzing} style={{ marginTop: 'auto' }}>
-                                {analyzing ? 'Đang cập nhật...' : 'Cập nhật phân tích'}
-                            </button>
-                        </div>
-                    )}
-                </div>
-
-            </div>
-        </div>
+      <div className="dashboard-loading">
+        <Loader2 className="animate-spin" size={42} color="var(--primary-glow)" />
+      </div>
     );
+  }
+
+  return (
+    <div className="dashboard-page" style={{ animation: 'fadeIn 0.5s ease-out' }}>
+      <PageHero
+        chip="Trung tâm giám sát mùa vụ"
+        title="Dashboard Giám Sát"
+        description="Theo dõi mùa vụ, chỉ số môi trường và khuyến nghị AI trong một màn hình rõ ràng, nổi bật và dễ thao tác hơn cho bà con."
+        actions={<RealtimeClock />}
+        aside={
+          <div className="dashboard-control-panel">
+            <div className="dashboard-control-field">
+              <label htmlFor="dashboard-crop">Loại cây trồng</label>
+              <select id="dashboard-crop" value={selectedCrop} onChange={(e) => setSelectedCrop(e.target.value)}>
+                {CROP_OPTIONS.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="dashboard-control-field">
+              <label htmlFor="dashboard-variety">Giống</label>
+              <select id="dashboard-variety" value={selectedVariety} onChange={(e) => setSelectedVariety(e.target.value)}>
+                {currentVarieties.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="dashboard-control-field dashboard-control-field-wide">
+              <label htmlFor="dashboard-farm">Trang trại đang theo dõi</label>
+              <select id="dashboard-farm" value={selectedFarmId} onChange={(e) => setSelectedFarmId(e.target.value)}>
+                {farms.map((farm: any) => (
+                  <option key={farm.id} value={farm.id}>
+                    {farm.farm_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="dashboard-hero-actions">
+              <button className="ph-btn ph-btn-secondary" onClick={fetchData} disabled={refreshing}>
+                <RefreshCcw size={16} className={refreshing ? 'animate-spin' : ''} />
+                Làm mới
+              </button>
+              <button className="ph-btn ph-btn-primary" onClick={seedData}>
+                <Database size={16} />
+                Tạo mẫu
+              </button>
+            </div>
+          </div>
+        }
+      />
+
+      <div className="dashboard-quick-grid">
+        <QuickActionCard
+          icon={<CircleAlert size={18} />}
+          title="Hôm nay cần chú ý gì?"
+          description={environmentStatus.summary}
+          action={<Link to="/dashboard/alerts" className="ph-btn ph-btn-secondary">Xem cảnh báo</Link>}
+        />
+        <QuickActionCard
+          icon={<Brain size={18} />}
+          title="Hỏi Trợ lý AI"
+          description="Nhận gợi ý nhanh về độ mặn, rủi ro và thao tác vận hành phù hợp với trang trại đang chọn."
+          action={<Link to="/dashboard/chat" className="ph-btn ph-btn-primary">Hỏi ngay</Link>}
+        />
+        <QuickActionCard
+          icon={<Leaf size={18} />}
+          title="Quản lý trang trại"
+          description="Xem vị trí, mùa vụ hiện tại và cập nhật thông tin trang trại để hệ thống gợi ý sát hơn."
+          action={<Link to="/dashboard/farms" className="ph-btn ph-btn-secondary">Xem trang trại</Link>}
+        />
+      </div>
+
+      <section className="dashboard-season-card glass-card">
+        <div className="dashboard-card-head">
+          <div className="dashboard-card-title-wrap">
+            <Leaf size={22} />
+            <div>
+              <h2>Thông tin mùa vụ hiện tại</h2>
+              <p className="dashboard-head-copy">Tập trung những thông tin quan trọng nhất về vụ đang theo dõi.</p>
+            </div>
+          </div>
+          <button className="dashboard-edit-btn" onClick={fetchData}>
+            <PencilLine size={16} />
+            Cập nhật
+          </button>
+        </div>
+
+        <div className="dashboard-season-body">
+          <div className="dashboard-season-grid">
+            <div className="dashboard-season-row">
+              <span>Ngày xuống giống:</span>
+              <strong>{seasonStart.toLocaleDateString('vi-VN')}</strong>
+            </div>
+            <div className="dashboard-season-row">
+              <span>Thời gian nuôi:</span>
+              <strong className="is-green">{seasonDays} ngày</strong>
+            </div>
+            <div className="dashboard-season-row">
+              <span>Giai đoạn:</span>
+              <strong className="is-orange">{getSeasonStage(selectedCrop, seasonDays)}</strong>
+            </div>
+            <div className="dashboard-season-row">
+              <span>Dự kiến thu hoạch:</span>
+              <strong>{harvestDate.toLocaleDateString('vi-VN')}</strong>
+            </div>
+          </div>
+
+          <div className="dashboard-season-progress">
+            <div
+              className="dashboard-progress-ring"
+              style={{
+                background: `conic-gradient(#0f9f75 ${seasonProgress}%, rgba(226, 232, 240, 0.8) ${seasonProgress}% 100%)`,
+              }}
+            >
+              <div className="dashboard-progress-ring-inner">{seasonProgress}%</div>
+            </div>
+            <p>Tiến độ vụ mùa</p>
+          </div>
+        </div>
+
+        <div className="dashboard-advice-strip">
+          <Sparkles size={18} />
+          <strong>Khuyến nghị:</strong>
+          <span>{seasonAdvice}</span>
+        </div>
+      </section>
+
+      <section className="dashboard-main-grid">
+        <SectionCard title="Độ mặn nước" icon={<Droplets size={18} />}>
+          <div className="dashboard-gauge-wrap">
+            <Gauge
+              value={toNumber(latestReading?.salinity)}
+              max={35}
+              label="Độ mặn"
+              unit="‰"
+              color="#0f9f75"
+              threshold={20}
+            />
+          </div>
+          <div className="dashboard-panel-footnote">
+            Cập nhật mới nhất: {latestReading?.timestamp ? new Date(latestReading.timestamp).toLocaleString('vi-VN') : 'Chưa có dữ liệu'}
+          </div>
+        </SectionCard>
+
+        <SectionCard title="Trạng thái môi trường" icon={<CircleAlert size={18} />}>
+          <div className={`dashboard-status-box tone-${environmentStatus.tone}`}>
+            <StatusBadge tone={environmentStatus.tone}>{environmentStatus.label}</StatusBadge>
+            <p>{environmentStatus.summary}</p>
+            <div className="dashboard-status-standard">
+              <strong>Giống đang chọn:</strong> {selectedVariety}
+            </div>
+          </div>
+
+          <ul className="dashboard-tip-list">
+            {environmentStatus.tips.map((tip) => (
+              <li key={tip}>{tip}</li>
+            ))}
+          </ul>
+        </SectionCard>
+      </section>
+
+      <section className="dashboard-metric-grid">
+        <article className="dashboard-metric-card glass-card">
+          <div className="dashboard-metric-icon water">
+            <Wind size={18} />
+          </div>
+          <div>
+            <span>Độ pH</span>
+            <strong>{toNumber(latestReading?.ph, 7).toFixed(1)}</strong>
+          </div>
+        </article>
+
+        <article className="dashboard-metric-card glass-card">
+          <div className="dashboard-metric-icon sun">
+            <Thermometer size={18} />
+          </div>
+          <div>
+            <span>Nhiệt độ nước</span>
+            <strong>{toNumber(latestReading?.temperature, 28).toFixed(1)} °C</strong>
+          </div>
+        </article>
+
+        <article className="dashboard-metric-card glass-card">
+          <div className="dashboard-metric-icon weather">
+            {weather?.weathercode <= 3 ? <Sun size={18} /> : <CloudRain size={18} />}
+          </div>
+          <div>
+            <span>Thời tiết hiện tại</span>
+            <strong>{weather ? `${toNumber(weather.temperature).toFixed(1)} °C` : 'Chưa có dữ liệu'}</strong>
+            <small>{getWeatherLabel(weather?.weathercode)}</small>
+          </div>
+        </article>
+      </section>
+
+      <section className="dashboard-bottom-grid">
+        <SectionCard title="Lịch sử đo lường gần đây" icon={<History size={18} />}>
+          <div className="dashboard-table-wrap">
+            <table className="dashboard-table">
+              <thead>
+                <tr>
+                  <th>Thời gian</th>
+                  <th>Thiết bị</th>
+                  <th>Chỉ số</th>
+                  <th>Trạng thái</th>
+                </tr>
+              </thead>
+              <tbody>
+                {readings.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="dashboard-empty-cell">Đang chờ dữ liệu cảm biến...</td>
+                  </tr>
+                ) : (
+                  readings.slice(0, 8).map((reading: any, index: number) => {
+                    const status = getEnvironmentStatus(reading);
+                    return (
+                      <tr key={`${reading.timestamp}-${index}`}>
+                        <td>{new Date(reading.timestamp).toLocaleString('vi-VN')}</td>
+                        <td>{reading.iot_devices?.device_name || `Cảm biến ${index + 1}`}</td>
+                        <td>
+                          <div className="dashboard-reading-group">
+                            <span>{toNumber(reading.salinity).toFixed(1)} ‰</span>
+                            <span>{toNumber(reading.ph, 7).toFixed(1)} pH</span>
+                            <span>{toNumber(reading.temperature, 28).toFixed(1)} °C</span>
+                          </div>
+                        </td>
+                        <td>
+                          <StatusBadge tone={status.tone}>{status.label}</StatusBadge>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </SectionCard>
+
+        <SectionCard title="Trợ lý AI" icon={<Brain size={18} />} className="dashboard-ai-panel">
+          {!recommendation ? (
+            <EmptyState
+              icon={<Brain size={24} />}
+              title="Chưa có phân tích AI"
+              description="Hãy chạy phân tích để hệ thống tạo khuyến nghị vận hành phù hợp với trang trại đang chọn."
+              action={
+                <button className="ph-btn ph-btn-primary" onClick={runAI} disabled={analyzing}>
+                  {analyzing ? 'Đang phân tích...' : 'Phân tích ngay'}
+                </button>
+              }
+            />
+          ) : (
+            <div className="dashboard-ai-content">
+              <div className="dashboard-ai-highlight">
+                <span>Khuyến nghị chính</span>
+                <strong>{recommendation.recommended_action}</strong>
+              </div>
+              <div className="dashboard-ai-explain">{recommendation.explanation}</div>
+              <button className="ph-btn ph-btn-secondary" onClick={runAI} disabled={analyzing}>
+                {analyzing ? 'Đang cập nhật...' : 'Cập nhật phân tích'}
+              </button>
+            </div>
+          )}
+        </SectionCard>
+      </section>
+    </div>
+  );
 };
