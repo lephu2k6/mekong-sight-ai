@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { iotService } from '../services/iot.service';
 import { farmService } from '../services/farm.service';
 import { Cpu, Plus, Search, MoreVertical, RefreshCw, Radio, Zap, Activity, Loader2, Play, StopCircle, Trash2 } from 'lucide-react';
@@ -308,11 +308,11 @@ export const AdminIoT: React.FC = () => {
                 </div>
 
                 <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                    <table className="admin-data-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
                         <thead>
                             <tr style={{ background: 'var(--bg-light)', borderBottom: '1px solid var(--border-light)' }}>
                                 <th style={{ padding: '1.2rem' }}>Thiết bị</th>
-                                <th style={{ padding: '1.2rem' }}>ID Hệ thống</th>
+                                <th style={{ padding: '1.2rem' }}>ID hệ thống</th>
                                 <th style={{ padding: '1.2rem' }}>Loại phần cứng</th>
                                 <th style={{ padding: '1.2rem' }}>Trạng thái</th>
                                 <th style={{ padding: '1.2rem' }}>Pin / Tín hiệu</th>
@@ -330,13 +330,13 @@ export const AdminIoT: React.FC = () => {
                                 devices.map((device) => (
                                     <tr key={device.id} style={{ borderBottom: '1px solid var(--border-light)' }} className="table-row-hover">
                                         <td style={{ padding: '1.2rem' }}>
-                                            <div className="flex items-center gap-3">
-                                                <div style={{ width: 40, height: 40, borderRadius: '10px', background: 'linear-gradient(135deg, var(--primary-green) 0%, var(--accent-teal) 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white' }}>
+                                            <div className="admin-entity-cell">
+                                                <div className="admin-entity-icon" style={{ background: 'linear-gradient(135deg, var(--primary-green) 0%, var(--accent-teal) 100%)', color: 'white' }}>
                                                     <Cpu size={20} />
                                                 </div>
-                                                <div>
-                                                    <p style={{ fontWeight: 600 }}>{device.device_name}</p>
-                                                    <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Trạm: {device.farms?.farm_name || 'Chưa gán'}</p>
+                                                <div className="admin-entity-copy">
+                                                    <h4>{device.device_name}</h4>
+                                                    <p>Trạm: {device.farms?.farm_name || 'Chưa gán'}</p>
                                                 </div>
                                             </div>
                                         </td>
@@ -354,7 +354,7 @@ export const AdminIoT: React.FC = () => {
                                         </td>
                                         <td style={{ padding: '1.2rem' }}>
                                             <div style={{ fontSize: '0.85rem' }}>
-                                                <p>🔋 {device.battery_level}%</p>
+                                                <p>Pin: {device.battery_level}%</p>
                                                 <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>FW: {device.firmware_version}</p>
                                             </div>
                                         </td>
@@ -456,7 +456,7 @@ export const AdminIoT: React.FC = () => {
                             </div>
                             <div className="grid grid-cols-2 gap-4" style={{ marginBottom: '1.5rem' }}>
                                 <div>
-                                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Hard. Ver</label>
+                                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Phiên bản phần cứng</label>
                                     <input
                                         value={newDevice.hardware_version}
                                         onChange={e => setNewDevice({ ...newDevice, hardware_version: e.target.value })}
@@ -464,7 +464,7 @@ export const AdminIoT: React.FC = () => {
                                     />
                                 </div>
                                 <div>
-                                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Firm. Ver</label>
+                                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Phiên bản firmware</label>
                                     <input
                                         value={newDevice.firmware_version}
                                         onChange={e => setNewDevice({ ...newDevice, firmware_version: e.target.value })}
@@ -486,3 +486,6 @@ export const AdminIoT: React.FC = () => {
         </div>
     );
 };
+
+
+

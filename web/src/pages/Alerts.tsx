@@ -1,118 +1,181 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useEffect, useMemo, useState } from 'react';
 import { farmService } from '../services/farm.service';
 import { Bell, AlertTriangle, AlertCircle, CheckCircle2, Info, Loader2 } from 'lucide-react';
+import { EmptyState } from '../components/EmptyState';
+import { PageHero } from '../components/PageHero';
+import { QuickActionCard } from '../components/QuickActionCard';
+import { SectionCard } from '../components/SectionCard';
+import { StatusBadge } from '../components/StatusBadge';
+
+const FILTER_LABELS = {
+  all: 'Tất cả',
+  critical: 'Nghiêm trọng',
+  warning: 'Cần lưu ý',
+  info: 'Thông tin',
+} as const;
+
+const getSeverityTone = (severity: string) => {
+  switch (severity) {
+    case 'critical':
+      return 'warning' as const;
+    case 'warning':
+      return 'watch' as const;
+    case 'info':
+      return 'info' as const;
+    default:
+      return 'neutral' as const;
+  }
+};
 
 export const Alerts: React.FC = () => {
-    const [alerts, setAlerts] = useState<any[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [filter, setFilter] = useState<'all' | 'critical' | 'warning' | 'info'>('all');
+  const [alerts, setAlerts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState<'all' | 'critical' | 'warning' | 'info'>('all');
 
-    const fetchAlerts = async () => {
-        try {
-            const data = await farmService.getAlerts();
-            setAlerts(data.data || []);
-        } catch (err) {
-            console.error(err);
-        } finally {
-            setLoading(false);
-        }
+  const fetchAlerts = async () => {
+    try {
+      const data = await farmService.getAlerts();
+      setAlerts(data.data || []);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchAlerts();
+  }, []);
+
+  const acknowledgeAlert = async (id: string) => {
+    try {
+      await farmService.acknowledgeAlert(id);
+      fetchAlerts();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const filteredAlerts = alerts.filter((alert) => filter === 'all' || alert.severity === filter);
+
+  const summary = useMemo(() => {
+    const active = alerts.filter((item) => item.status === 'active');
+    return {
+      critical: active.filter((item) => item.severity === 'critical').length,
+      warning: active.filter((item) => item.severity === 'warning').length,
+      info: active.filter((item) => item.severity === 'info').length,
     };
+  }, [alerts]);
 
-    useEffect(() => {
-        fetchAlerts();
-    }, []);
+  const getIcon = (severity: string) => {
+    switch (severity) {
+      case 'critical':
+        return <AlertCircle size={22} />;
+      case 'warning':
+        return <AlertTriangle size={22} />;
+      case 'info':
+        return <Info size={22} />;
+      default:
+        return <Bell size={22} />;
+    }
+  };
 
-    const acknowledgeAlert = async (id: string) => {
-        try {
-            await farmService.acknowledgeAlert(id);
-            fetchAlerts();
-        } catch (err) {
-            console.error(err);
-        }
-    };
-
-    const filteredAlerts = alerts.filter(a => filter === 'all' || a.severity === filter);
-
-    const getIcon = (severity: string) => {
-        switch (severity) {
-            case 'critical': return <AlertCircle color="#f87171" size={24} />;
-            case 'warning': return <AlertTriangle color="#f59e0b" size={24} />;
-            case 'info': return <Info color="#3b82f6" size={24} />;
-            default: return <Bell color="#94a3b8" size={24} />;
-        }
-    };
-
-    return (
-        <div style={{ animation: 'fadeIn 0.5s ease-out' }}>
-            <div className="flex justify-between items-center" style={{ marginBottom: '2.5rem' }}>
-                <div>
-                    <h1 style={{ marginBottom: '0.5rem' }}>Trung tâm cảnh báo</h1>
-                    <p className="text-secondary">Theo dõi các thông báo quan trọng về môi trường và hệ thống.</p>
-                </div>
-                <div style={{ display: 'flex', gap: '0.5rem' }} className="glass-card p-1">
-                    {(['all', 'critical', 'warning', 'info'] as const).map(f => (
-                        <button
-                            key={f}
-                            className={filter === f ? 'primary' : 'secondary'}
-                            style={{ padding: '0.4rem 1rem', fontSize: '0.8rem', textTransform: 'capitalize' }}
-                            onClick={() => setFilter(f)}
-                        >
-                            {f === 'all' ? 'Tất cả' : f}
-                        </button>
-                    ))}
-                </div>
+  return (
+    <div className="alerts-page" style={{ animation: 'fadeIn 0.5s ease-out' }}>
+      <PageHero
+        chip="Trung tâm cảnh báo"
+        title="Theo dõi cảnh báo môi trường"
+        description="Tập trung các cảnh báo cần xử lý trước để bà con biết ngay hôm nay nên ưu tiên điều gì."
+        aside={
+          <div className="alerts-filter-shell">
+            <p>Chọn mức độ cần theo dõi</p>
+            <div className="alerts-filter-grid">
+              {(['all', 'critical', 'warning', 'info'] as const).map((item) => (
+                <button
+                  key={item}
+                  className={`alerts-filter-btn ${filter === item ? 'is-active' : ''}`}
+                  onClick={() => setFilter(item)}
+                >
+                  {FILTER_LABELS[item]}
+                </button>
+              ))}
             </div>
+          </div>
+        }
+      />
 
-            {loading ? (
-                <div style={{ display: 'flex', justifyContent: 'center', padding: '5rem' }}>
-                    <Loader2 className="animate-spin" size={40} color="var(--primary-glow)" />
-                </div>
-            ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                    {filteredAlerts.length === 0 ? (
-                        <div className="card text-center" style={{ padding: '4rem', opacity: 0.6 }}>
-                            <CheckCircle2 size={48} color="#10b981" style={{ margin: '0 auto 1.5rem' }} />
-                            <p>Không có cảnh báo nào hiện tại. Hệ thống ổn định.</p>
-                        </div>
-                    ) : (
-                        filteredAlerts.map(alert => (
-                            <div key={alert.id} className={`card p-5 flex gap-5 items-start ${alert.status === 'active' ? 'border-glow' : ''}`}
-                                style={{
-                                    background: alert.severity === 'critical' ? 'rgba(248, 113, 113, 0.05)' : 'rgba(255,255,255,0.03)',
-                                    borderColor: alert.severity === 'critical' ? 'rgba(248, 113, 113, 0.1)' : 'var(--border-subtle)'
-                                }}>
-                                <div style={{ padding: '12px', background: 'rgba(255,255,255,0.05)', borderRadius: '15px' }}>
-                                    {getIcon(alert.severity)}
-                                </div>
-                                <div style={{ flex: 1 }}>
-                                    <div className="flex justify-between items-start" style={{ marginBottom: '0.5rem' }}>
-                                        <h3 style={{ margin: 0, fontSize: '1.1rem' }}>{alert.title}</h3>
-                                        <span className="text-secondary" style={{ fontSize: '0.8rem' }}>{new Date(alert.created_at).toLocaleString('vi-VN')}</span>
-                                    </div>
-                                    <p className="text-secondary" style={{ fontSize: '0.9rem', marginBottom: '1.2rem', lineHeight: 1.6 }}>{alert.message}</p>
+      <div className="alerts-summary-grid">
+        <QuickActionCard
+          icon={<AlertCircle size={18} />}
+          title="Cảnh báo nghiêm trọng"
+          description={`${summary.critical} cảnh báo đang cần ưu tiên xử lý ngay.`}
+          action={<StatusBadge tone="warning">Ưu tiên cao</StatusBadge>}
+        />
+        <QuickActionCard
+          icon={<AlertTriangle size={18} />}
+          title="Cần lưu ý"
+          description={`${summary.warning} cảnh báo nên theo dõi sát trong ngày.`}
+          action={<StatusBadge tone="watch">Theo dõi sát</StatusBadge>}
+        />
+        <QuickActionCard
+          icon={<Info size={18} />}
+          title="Thông tin hệ thống"
+          description={`${summary.info} thông báo hỗ trợ ra quyết định đang hiển thị.`}
+          action={<StatusBadge tone="info">Thông tin</StatusBadge>}
+        />
+      </div>
 
-                                    <div className="flex justify-between items-center">
-                                        <div className="flex gap-2">
-                                            <span style={{ fontSize: '0.75rem', padding: '2px 10px', borderRadius: '10px', background: 'rgba(255,255,255,0.05)', color: 'var(--text-dim)' }}>
-                                                Farm ID: {alert.farm_id?.slice(0, 8)}...
-                                            </span>
-                                        </div>
-                                        {alert.status === 'active' && (
-                                            <button
-                                                className="secondary"
-                                                style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}
-                                                onClick={() => acknowledgeAlert(alert.id)}
-                                            >
-                                                Xác nhận đã xem
-                                            </button>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-                        ))
-                    )}
-                </div>
-            )}
-        </div>
-    );
+      <SectionCard
+        title="Danh sách cảnh báo"
+        description="Các thẻ dưới đây được phân cấp rõ ràng theo mức độ để dễ quan sát hơn."
+        icon={<Bell size={18} />}
+      >
+        {loading ? (
+          <div className="alerts-loading">
+            <Loader2 className="animate-spin" size={40} color="var(--primary-green)" />
+          </div>
+        ) : filteredAlerts.length === 0 ? (
+          <EmptyState
+            icon={<CheckCircle2 size={24} />}
+            title="Không có cảnh báo cần xử lý"
+            description="Hiện tại hệ thống chưa ghi nhận cảnh báo nào trong nhóm bạn đang xem."
+          />
+        ) : (
+          <div className="alerts-list">
+            {filteredAlerts.map((alert) => {
+              const tone = getSeverityTone(alert.severity);
+              return (
+                <article key={alert.id} className={`alerts-item tone-${tone}`}>
+                  <div className="alerts-item-icon">{getIcon(alert.severity)}</div>
+                  <div className="alerts-item-main">
+                    <div className="alerts-item-head">
+                      <div>
+                        <h3>{alert.title}</h3>
+                        <p>{alert.message}</p>
+                      </div>
+                      <div className="alerts-item-meta">
+                        <StatusBadge tone={tone}>{FILTER_LABELS[alert.severity as 'critical' | 'warning' | 'info'] || 'Thông tin'}</StatusBadge>
+                        <span>{new Date(alert.created_at).toLocaleString('vi-VN')}</span>
+                      </div>
+                    </div>
+
+                    <div className="alerts-item-foot">
+                      <span className="alerts-farm-chip">Mã trang trại: {alert.farm_id?.slice(0, 8) || '---'}</span>
+                      {alert.status === 'active' ? (
+                        <button className="ph-btn ph-btn-secondary" onClick={() => acknowledgeAlert(alert.id)}>
+                          Xác nhận đã xem
+                        </button>
+                      ) : (
+                        <StatusBadge tone="safe">Đã xác nhận</StatusBadge>
+                      )}
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </SectionCard>
+    </div>
+  );
 };

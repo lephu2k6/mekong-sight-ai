@@ -1,199 +1,300 @@
-import React from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Sprout, Droplets, Brain, BarChart3, Shield, Zap, ArrowRight, Leaf } from 'lucide-react';
+import { ArrowRight, BarChart3, Bot, Brain, MessageCircleMore, Shield, Sprout } from 'lucide-react';
+import { BrandMark } from '../components/BrandMark';
+import anhtheimg from '../assets/img/anhthe.jpg';
+import luaxanhimg from '../assets/img/luakhoe.jpg';
+import tomkhoeimg from '../assets/img/tomkhoe.jpg';
+const sectionIds = ['giai-phap', 'tinh-nang', 'cong-dong'] as const;
 
-export const PublicHome: React.FC = () => {
-    return (
-        <div className="public-container">
-            {/* Header */}
-            <header className="public-header">
-                <div className="public-header-content">
-                    <Link to="/" className="public-logo">
-                        <Leaf size={32} />
-                        Mekong Sight AI
-                    </Link>
-                    <nav className="public-nav">
-                        <Link to="/services">Dịch vụ</Link>
-                        <a href="#features">Tính năng</a>
-                        <a href="#about">Giới thiệu</a>
-                        <Link to="/login">
-                            <button className="primary">Đăng nhập</button>
-                        </Link>
-                    </nav>
-                </div>
-            </header>
+const marqueeItems = [
+  'Cập nhật dữ liệu 5 phút/lần',
+  'Bán kính phủ sóng 10km',
+  'Giảm 40% rủi ro thiên tai',
+];
 
-            {/* Hero Section */}
-            <main className="public-main">
-                <section className="hero">
-                    <div className="hero-content">
-                        <h1>Nông nghiệp thông minh<br />cho Đồng bằng sông Cửu Long</h1>
-                        <p>
-                            Giải pháp AI toàn diện giúp nông dân theo dõi, phân tích và tối ưu hóa
-                            sản xuất tôm - lúa. Từ cảnh báo độ mặn đến chẩn đoán bệnh qua hình ảnh.
-                        </p>
-                        <div className="hero-cta">
-                            <Link to="/login">
-                                <button className="primary" style={{ fontSize: '1.1rem', padding: '1rem 2rem' }}>
-                                    Bắt đầu ngay <ArrowRight size={20} />
-                                </button>
-                            </Link>
-                            <a href="#services">
-                                <button className="secondary" style={{ fontSize: '1.1rem', padding: '1rem 2rem' }}>
-                                    Tìm hiểu thêm
-                                </button>
-                            </a>
-                        </div>
-                    </div>
-                </section>
+export const PublicHome = () => {
+  const [activeSection, setActiveSection] = useState<(typeof sectionIds)[number]>('giai-phap');
 
-                {/* Services Section */}
-                <section id="services" style={{ padding: '6rem 2rem', background: 'white' }}>
-                    <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
-                        <h2 style={{ textAlign: 'center', fontSize: '2.5rem', marginBottom: '3rem' }}>
-                            Dịch vụ của chúng tôi
-                        </h2>
-                        <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
-                            <div className="service-card">
-                                <div className="service-icon">
-                                    <Droplets size={40} />
-                                </div>
-                                <h3>Giám sát độ mặn</h3>
-                                <p>
-                                    Theo dõi độ mặn thời gian thực qua cảm biến IoT.
-                                    Cảnh báo tự động khi vượt ngưỡng an toàn cho từng loại cây trồng.
-                                </p>
-                            </div>
+  useEffect(() => {
+    const elements = sectionIds
+      .map((id) => document.getElementById(id))
+      .filter((element): element is HTMLElement => element !== null);
 
-                            <div className="service-card">
-                                <div className="service-icon">
-                                    <Brain size={40} />
-                                </div>
-                                <h3>Trợ lý AI</h3>
-                                <p>
-                                    Chatbot thông minh hỗ trợ chẩn đoán bệnh tôm, lúa qua hình ảnh.
-                                    Tư vấn kỹ thuật canh tác phù hợp với điều kiện địa phương.
-                                </p>
-                            </div>
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visibleEntry = entries
+          .filter((entry) => entry.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
 
-                            <div className="service-card">
-                                <div className="service-icon">
-                                    <BarChart3 size={40} />
-                                </div>
-                                <h3>Phân tích dữ liệu</h3>
-                                <p>
-                                    Phân tích xu hướng môi trường, dự báo rủi ro.
-                                    Báo cáo chi tiết giúp ra quyết định chính xác hơn.
-                                </p>
-                            </div>
-
-                            <div className="service-card">
-                                <div className="service-icon">
-                                    <Sprout size={40} />
-                                </div>
-                                <h3>Quản lý mùa vụ</h3>
-                                <p>
-                                    Theo dõi chu kỳ trồng trọt, lịch chăm sóc.
-                                    Tối ưu hóa lịch luân canh tôm - lúa theo mùa.
-                                </p>
-                            </div>
-
-                            <div className="service-card">
-                                <div className="service-icon">
-                                    <Shield size={40} />
-                                </div>
-                                <h3>Cảnh báo sớm</h3>
-                                <p>
-                                    Hệ thống cảnh báo đa kênh (SMS, Email, App).
-                                    Phản ứng nhanh với các biến động bất thường.
-                                </p>
-                            </div>
-
-                            <div className="service-card">
-                                <div className="service-icon">
-                                    <Zap size={40} />
-                                </div>
-                                <h3>Tự động hóa</h3>
-                                <p>
-                                    Kết nối với thiết bị điều khiển tự động.
-                                    Tiết kiệm thời gian và công sức cho nông dân.
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-                </section>
-
-                {/* Features Section */}
-                <section id="features" style={{ padding: '6rem 2rem', background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.05) 0%, rgba(20, 184, 166, 0.05) 100%)' }}>
-                    <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
-                        <h2 style={{ textAlign: 'center', fontSize: '2.5rem', marginBottom: '3rem' }}>
-                            Tại sao chọn Mekong Sight AI?
-                        </h2>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '2rem' }}>
-                            <div style={{ padding: '2rem' }}>
-                                <h3 style={{ fontSize: '1.5rem', marginBottom: '1rem', color: 'var(--primary-green)' }}>
-                                    🌾 Chuyên biệt cho ĐBSCL
-                                </h3>
-                                <p style={{ color: 'var(--text-secondary)', lineHeight: '1.8' }}>
-                                    Được thiết kế riêng cho điều kiện xâm nhập mặn và phèn tại miền Tây.
-                                    Hiểu rõ đặc thù canh tác tôm - lúa luân canh.
-                                </p>
-                            </div>
-
-                            <div style={{ padding: '2rem' }}>
-                                <h3 style={{ fontSize: '1.5rem', marginBottom: '1rem', color: 'var(--accent-teal)' }}>
-                                    🤖 AI thế hệ mới
-                                </h3>
-                                <p style={{ color: 'var(--text-secondary)', lineHeight: '1.8' }}>
-                                    Sử dụng Gemini 2.5 Flash - mô hình AI tiên tiến nhất của Google.
-                                    Chẩn đoán bệnh chính xác, tư vấn kỹ thuật như chuyên gia.
-                                </p>
-                            </div>
-
-                            <div style={{ padding: '2rem' }}>
-                                <h3 style={{ fontSize: '1.5rem', marginBottom: '1rem', color: 'var(--accent-lime)' }}>
-                                    📱 Dễ sử dụng
-                                </h3>
-                                <p style={{ color: 'var(--text-secondary)', lineHeight: '1.8' }}>
-                                    Giao diện thân thiện, ngôn ngữ gần gũi với nông dân.
-                                    Không cần kiến thức công nghệ phức tạp.
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-                </section>
-
-                {/* About Section */}
-                <section id="about" style={{ padding: '6rem 2rem', background: 'white' }}>
-                    <div style={{ maxWidth: '900px', margin: '0 auto', textAlign: 'center' }}>
-                        <h2 style={{ fontSize: '2.5rem', marginBottom: '2rem' }}>
-                            Về Mekong Sight AI
-                        </h2>
-                        <p style={{ fontSize: '1.15rem', color: 'var(--text-secondary)', lineHeight: '1.9', marginBottom: '2rem' }}>
-                            Chúng tôi là đội ngũ kỹ sư và chuyên gia nông nghiệp, cam kết mang công nghệ AI
-                            đến gần hơn với bà con nông dân Đồng bằng sông Cửu Long. Sứ mệnh của chúng tôi
-                            là giúp nông dân tăng năng suất, giảm rủi ro và phát triển bền vững.
-                        </p>
-                        <Link to="/login">
-                            <button className="primary" style={{ fontSize: '1.1rem', padding: '1rem 2.5rem' }}>
-                                Trải nghiệm ngay
-                            </button>
-                        </Link>
-                    </div>
-                </section>
-            </main>
-
-            {/* Footer */}
-            <footer className="public-footer">
-                <div className="footer-content">
-                    <p style={{ marginBottom: '0.5rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-                        Mekong Sight AI © 2026
-                    </p>
-                    <p style={{ fontSize: '0.9rem' }}>
-                        Nông nghiệp thông minh - Tương lai bền vững
-                    </p>
-                </div>
-            </footer>
-        </div>
+        if (visibleEntry?.target.id) {
+          setActiveSection(visibleEntry.target.id as (typeof sectionIds)[number]);
+        }
+      },
+      {
+        rootMargin: '-35% 0px -45% 0px',
+        threshold: [0.2, 0.45, 0.7],
+      },
     );
+
+    elements.forEach((element) => observer.observe(element));
+
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div className="ph-page">
+      <header className="ph-header">
+        <div className="ph-shell ph-header-inner">
+          <Link to="/" className="ph-brand">
+            <BrandMark className="ph-brand-mark" />
+            <span>Mekong Sight AI</span>
+          </Link>
+
+          <nav className="ph-nav">
+            <Link to="/services" className="ph-nav-link">
+              Dịch vụ
+            </Link>
+            <a
+              href="#giai-phap"
+              className={`ph-nav-link ${activeSection === 'giai-phap' ? 'is-active' : ''}`}
+            >
+              Giải pháp
+            </a>
+            <a
+              href="#tinh-nang"
+              className={`ph-nav-link ${activeSection === 'tinh-nang' ? 'is-active' : ''}`}
+            >
+              Tính năng
+            </a>
+            <a
+              href="#cong-dong"
+              className={`ph-nav-link ${activeSection === 'cong-dong' ? 'is-active' : ''}`}
+            >
+              Cộng đồng
+            </a>
+          </nav>
+
+          <div className="ph-header-actions">
+            <Link to="/login" className="ph-btn ph-btn-soft">
+              Đăng nhập
+            </Link>
+          </div>
+        </div>
+      </header>
+
+      <main className="ph-main ph-shell">
+        <section className="ph-hero">
+          <div className="ph-hero-bg" aria-hidden="true">
+            <img
+              src={anhtheimg}
+              alt=""
+            />
+            <div className="ph-hero-overlay" />
+          </div>
+
+          <div className="ph-hero-content">
+            <p className="ph-chip">CÔNG NGHỆ NHÌN THẤY TƯƠNG LAI</p>
+            <h1>
+              Tối ưu năng suất <span>Tôm - Lúa</span> bằng AI
+            </h1>
+            <p>
+              Theo dõi xâm nhập mặn, phân tích ảnh bệnh thực tế và nhận cảnh báo trực tiếp để bà con
+              xử lý đúng thời điểm.
+            </p>
+            <div className="ph-hero-actions">
+              <Link to="/login" className="ph-btn ph-btn-primary ph-btn-large">
+                Bảo vệ mùa vụ ngay <ArrowRight size={18} />
+              </Link>
+              <a href="#giai-phap" className="ph-btn ph-btn-outline ph-btn-large">
+                Khám phá giải pháp
+              </a>
+            </div>
+          </div>
+        </section>
+
+        <section className="ph-marquee" aria-label="Số liệu nổi bật">
+          <div className="ph-marquee-fade ph-marquee-fade-left" />
+          <div className="ph-marquee-fade ph-marquee-fade-right" />
+          <div className="ph-marquee-track">
+            {[...marqueeItems, ...marqueeItems, ...marqueeItems].map((item, index) => (
+              <div key={`${item}-${index}`} className="ph-marquee-item">
+                <BrandMark className="ph-marquee-mark" />
+                <span>{item}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section id="giai-phap" className="ph-section ph-solution-section">
+          <div className="ph-title-wrap">
+            <h2>Giải pháp và thành quả</h2>
+            <p>
+              Hệ thống hướng dẫn xử lý dựa trên dữ liệu thực địa, giúp môi trường nước ổn định hơn và
+              vụ mùa đều tay hơn.
+            </p>
+          </div>
+
+          <article className="ph-compare-card ph-solution ph-solution-only">
+            <div className="ph-compare-grid">
+              <figure>
+                <img
+                  src= {luaxanhimg}
+                  alt="Ruộng lúa xanh khỏe"
+                />
+                <figcaption>Lúa xanh, khỏe và phát triển đồng đều</figcaption>
+              </figure>
+              <figure>
+                <img
+                  src={tomkhoeimg}
+                  alt="Thu hoạch tôm đạt chuẩn"
+                />
+                <figcaption>Tôm đạt chuẩn, chất lượng ổn định</figcaption>
+              </figure>
+            </div>
+            <div className="ph-solution-copy">
+              <Shield size={22} />
+              <p>
+                Dữ liệu từ camera, trạm nước và AI được quy đổi thành khuyến nghị để bà con hành động
+                sớm và đúng lúc.
+              </p>
+            </div>
+          </article>
+        </section>
+
+        <section id="tinh-nang" className="ph-section">
+          <div className="ph-title-wrap">
+            <h2>Tính năng nổi bật</h2>
+            <p>Tập trung vào các tính năng dễ đọc, dễ hiểu và ra quyết định nhanh ngay trên điện thoại.</p>
+          </div>
+
+          <div className="ph-feature-grid ph-feature-grid-compact">
+            <article className="ph-feature-card">
+              <span className="ph-feature-icon">
+                <Brain size={24} />
+              </span>
+              <h3>Cảnh báo tức thì</h3>
+              <p>Thông báo sớm khi có dấu hiệu bất thường để xử lý ngay tại hiện trường.</p>
+            </article>
+
+            <article className="ph-feature-card">
+              <span className="ph-feature-icon">
+                <BarChart3 size={24} />
+              </span>
+              <h3>AI dự báo mùa vụ</h3>
+              <p>Phân tích xu hướng và đề xuất thời điểm xuống giống, xử lý nước hợp lý.</p>
+            </article>
+          </div>
+        </section>
+
+        <section className="ph-chat-panel">
+          <div className="ph-chat-copy">
+            <p className="ph-chip">Trợ lý AI đồng hành</p>
+            <h2>Trò chuyện trực tiếp với trợ lý AI</h2>
+            <p>
+              Thay vì một ô dashboard kỹ thuật, khu vực này hiển thị một cuộc hội thoại mẫu để người
+              dùng cảm thấy gần gũi và dễ hình dung cách hệ thống hỗ trợ.
+            </p>
+            <div className="ph-chat-highlights">
+              <span>
+                <Bot size={16} /> Gợi ý cách xử lý
+              </span>
+              <span>
+                <MessageCircleMore size={16} /> Trả lời theo ngữ cảnh
+              </span>
+            </div>
+          </div>
+
+          <div className="ph-chat-card">
+            <div className="ph-chat-card-top">
+              <div>
+                <p className="ph-chat-title">Trợ lý AI Mekong</p>
+                <p className="ph-chat-status">Đang online</p>
+              </div>
+              <span className="ph-chat-badge">Live chat</span>
+            </div>
+
+            <div className="ph-chat-thread">
+              <div className="ph-chat-bubble ph-chat-bubble-user">
+                Độ mặn hôm nay tăng nhanh, tui nên làm gì trước?
+              </div>
+              <div className="ph-chat-bubble ph-chat-bubble-ai">
+                Nếu khu vực đang vượt ngưỡng 4.5 ppt, nên kiểm tra cống nước và tạm dừng cấp nước mới
+                trong 12 giờ tới.
+              </div>
+              <div className="ph-chat-bubble ph-chat-bubble-ai">
+                Tôi có thể gợi ý quy trình xử lý ao tôm hoặc ruộng lúa tùy theo khu vực của mình.
+              </div>
+            </div>
+
+            <div className="ph-chat-input">
+              <span>Hỏi trợ lý AI về độ mặn, bệnh tôm, lịch mùa vụ...</span>
+              <button type="button" className="ph-btn ph-btn-primary">
+                Gửi
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <section id="cong-dong" className="ph-human">
+          <div className="ph-human-content">
+            <p className="ph-chip">Gần gũi với nhà nông</p>
+            <h2>Dễ dàng làm quen và sử dụng</h2>
+            <p>Thiết kế đơn giản, chữ lớn và cảnh báo rõ để ai cũng dùng được, kể cả ngoài ruộng.</p>
+            <div className="ph-human-points">
+              <article>
+                <Sprout size={24} />
+                <h3>Dễ đọc ngoài nắng</h3>
+                <p>Thông tin quan trọng được ưu tiên hiển thị rõ ràng.</p>
+              </article>
+              <article>
+                <Brain size={24} />
+                <h3>Hỗ trợ theo ngữ cảnh</h3>
+                <p>AI diễn giải kết quả thành hành động cụ thể, dễ làm theo.</p>
+              </article>
+            </div>
+          </div>
+
+          <aside className="ph-quote-card">
+            <img
+              src="https://images.unsplash.com/photo-1464226184884-fa280b87c399?auto=format&fit=crop&q=80&w=1200"
+              alt="Nông dân kiểm tra dữ liệu trên điện thoại"
+            />
+            <blockquote>
+              Từ ngày dùng hệ thống, tui ở nhà vẫn biết ao mặn ngọt ra sao. Đỡ cực mà tôm lúa đều tốt
+              hơn.
+            </blockquote>
+            <p>- Chú Bảy, Bến Tre</p>
+          </aside>
+        </section>
+
+        <section className="ph-cta">
+          <h2>Mang sức mạnh AI về với cánh đồng của bạn</h2>
+          <p>Tham gia cùng cộng đồng nông dân đang bảo vệ mùa vụ bằng dữ liệu thực địa.</p>
+          <div className="ph-cta-actions">
+            <Link to="/login" className="ph-btn ph-btn-primary ph-btn-large">
+              Đăng ký miễn phí
+            </Link>
+            <Link to="/services" className="ph-btn ph-btn-ghost ph-btn-large">
+              Xem dịch vụ
+            </Link>
+          </div>
+        </section>
+      </main>
+
+      <footer className="ph-footer">
+        <div className="ph-shell ph-footer-inner">
+          <div>
+            <h3>Mekong Sight AI</h3>
+            <p>Nâng tầm nông nghiệp Việt Nam bằng AI và dữ liệu thực địa.</p>
+          </div>
+          <div className="ph-footer-links">
+            <Link to="/services">Dịch vụ</Link>
+            <a href="#tinh-nang">Tính năng</a>
+            <Link to="/login">Đăng nhập</Link>
+          </div>
+        </div>
+      </footer>
+    </div>
+  );
 };
