@@ -33,6 +33,22 @@ type RiskResponse = {
   diagnostics?: Record<string, any>;
 };
 type DecisionResponse = { decision: string; urgency: string; reason: string; actions: string[] };
+type Ai1MetricRow = { horizon: number; model: string; mae: number; rmse: number };
+type Ai1ThresholdRow = {
+  model: string;
+  horizon: number;
+  tolerance_ppt: number;
+  accuracy_pct: number;
+  target_accuracy_pct: number;
+  accuracy_status: string;
+};
+type Ai1AcceptanceRow = {
+  horizon: number;
+  selected_model: string;
+  vs_baseline_status: string;
+  within_tolerance_accuracy_pct: number;
+  overall_status: string;
+};
 
 const PROVINCE_MAP: Record<string, string> = {
   'soc trang': 'Soc Trang',
@@ -203,6 +219,16 @@ const formatAnalysisType = (value?: string) =>
       ? 'Dự báo độ mặn'
       : value || 'Phân tích AI';
 
+const formatShortDate = (value?: string) => {
+  if (!value) return 'Chưa xác định';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? value
+    : date.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' });
+};
+
+const parseNumeric = (value: unknown): number => Number(value || 0);
+
 export const Analysis: React.FC = () => {
   const [requests, setRequests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -221,16 +247,113 @@ export const Analysis: React.FC = () => {
   const [decisionLoading, setDecisionLoading] = useState(false);
   const [decisionError, setDecisionError] = useState('');
   const [selectedProvince, setSelectedProvince] = useState('');
-  const [reportCharts, setReportCharts] = useState<any[]>([]);
-  const [reportMetrics, setReportMetrics] = useState<any[]>([]);
-  const [reportsLoading, setReportsLoading] = useState(true);
   const [aiSupportedProvinces, setAiSupportedProvinces] = useState<string[]>([]);
   const [manualProvince, setManualProvince] = useState('');
+  const [ai1Metrics, setAi1Metrics] = useState<Ai1MetricRow[]>([]);
+  const [ai1Thresholds, setAi1Thresholds] = useState<Ai1ThresholdRow[]>([]);
+  const [ai1Acceptance, setAi1Acceptance] = useState<Ai1AcceptanceRow[]>([]);
+  const [ai1PerformanceLoading, setAi1PerformanceLoading] = useState(false);
+  const [ai1PerformanceError, setAi1PerformanceError] = useState('');
+
+  const userRole = useMemo(() => {
+    try {
+      const raw = localStorage.getItem('user');
+      return raw ? JSON.parse(raw).role || 'farmer' : 'farmer';
+    } catch {
+      return 'farmer';
+    }
+  }, []);
+  const isAdmin = userRole === 'admin';
 
   const selectedFarmInfo = useMemo(
     () => farms.find((farm) => farm.id === selectedFarm),
     [farms, selectedFarm]
   );
+
+  const forecastOverview = useMemo(() => {
+    if (!forecast?.forecast?.length) return null;
+
+    const series = forecast.forecast.map((item) => ({
+      ...item,
+      salinityValue: Number(item.salinity_pred),
+    }));
+    const peak = series.reduce((current, item) =>
+      item.salinityValue > current.salinityValue ? item : current
+    );
+    const warningDays = series.filter((item) => item.salinityValue >= 4).length;
+    const severeDays = series.filter((item) => item.salinityValue >= 6).length;
+    const saferDay = series.find((item) => item.salinityValue < 4) || null;
+
+    let guidance = 'Điều kiện tương đối ổn định, vẫn nên đo lại theo lịch thường ngày.';
+    if (peak.salinityValue >= 6) {
+      guidance = 'Độ mặn đang cao, nên hạn chế lấy nước mới và kiểm tra cống kỹ trước khi vận hành.';
+    } else if (peak.salinityValue >= 4) {
+      guidance = 'Có ngày cần lưu ý, nên đo lại độ mặn trong ngày trước khi cấp nước vào ao hoặc ruộng.';
+    }
+
+    return {
+      peak,
+      warningDays,
+      severeDays,
+      safeDays: series.length - warningDays,
+      saferDay,
+      guidance,
+    };
+  }, [forecast]);
+
+  const ai1PerformanceSummary = useMemo(() => {
+    if (!isAdmin || ai1Metrics.length === 0) return null;
+
+    const baselineRows = ai1Metrics
+      .filter((row) => row.model === 'baseline_linear')
+      .sort((a, b) => a.horizon - b.horizon);
+    const xgbRows = ai1Metrics
+      .filter((row) => row.model === 'xgboost')
+      .sort((a, b) => a.horizon - b.horizon);
+    if (baselineRows.length === 0 || xgbRows.length === 0) return null;
+
+    const byHorizon = baselineRows.map((baselineRow) => {
+      const xgbRow = xgbRows.find((item) => item.horizon === baselineRow.horizon);
+      const thresholdRow = ai1Thresholds.find(
+        (item) => item.model === 'xgboost' && item.horizon === baselineRow.horizon
+      );
+      const acceptanceRow = ai1Acceptance.find((item) => item.horizon === baselineRow.horizon);
+      const xgbRmse = xgbRow?.rmse ?? 0;
+      const baselineRmse = baselineRow.rmse;
+      const rmseImprovementPct =
+        baselineRmse > 0 ? ((baselineRmse - xgbRmse) / baselineRmse) * 100 : 0;
+
+      return {
+        horizon: baselineRow.horizon,
+        baselineMae: baselineRow.mae,
+        baselineRmse,
+        xgbMae: xgbRow?.mae ?? 0,
+        xgbRmse,
+        accuracyPct: thresholdRow?.accuracy_pct ?? 0,
+        targetAccuracyPct: thresholdRow?.target_accuracy_pct ?? 0,
+        tolerancePpt: thresholdRow?.tolerance_ppt ?? 0,
+        overallStatus: acceptanceRow?.overall_status || 'unknown',
+        winner: xgbRmse < baselineRmse ? 'xgboost' : 'baseline_linear',
+        rmseImprovementPct,
+      };
+    });
+
+    const wins = byHorizon.filter((row) => row.winner === 'xgboost').length;
+    const avgBaselineRmse =
+      byHorizon.reduce((sum, row) => sum + row.baselineRmse, 0) / byHorizon.length;
+    const avgXgbRmse = byHorizon.reduce((sum, row) => sum + row.xgbRmse, 0) / byHorizon.length;
+    const avgAccuracy =
+      byHorizon.reduce((sum, row) => sum + row.accuracyPct, 0) / byHorizon.length;
+
+    return {
+      rows: byHorizon,
+      wins,
+      total: byHorizon.length,
+      avgAccuracy,
+      avgRmseImprovementPct: avgBaselineRmse > 0 ? ((avgBaselineRmse - avgXgbRmse) / avgBaselineRmse) * 100 : 0,
+      overallPass: byHorizon.every((row) => row.overallStatus === 'pass'),
+    };
+  }, [ai1Acceptance, ai1Metrics, ai1Thresholds, isAdmin]);
 
   const fetchHistory = async (farmId: string) => {
     if (!farmId) return setRequests([]);
@@ -243,24 +366,6 @@ export const Analysis: React.FC = () => {
     }
   };
 
-  const fetchReportAssets = async () => {
-    setReportsLoading(true);
-    try {
-      const [chartsResp, metricsResp] = await Promise.all([
-        aiService.getReportCharts(),
-        aiService.getReportMetrics(),
-      ]);
-      setReportCharts(chartsResp?.data || []);
-      setReportMetrics(metricsResp?.data || []);
-    } catch (error) {
-      console.error(error);
-      setReportCharts([]);
-      setReportMetrics([]);
-    } finally {
-      setReportsLoading(false);
-    }
-  };
-
   const fetchAiMetadata = async () => {
     try {
       const metadataResp = await aiService.getModelMetadata();
@@ -269,6 +374,55 @@ export const Analysis: React.FC = () => {
       if (provinces.length > 0) setManualProvince((prev) => prev || provinces[0]);
     } catch {
       setAiSupportedProvinces([]);
+    }
+  };
+
+  const fetchAi1Performance = async () => {
+    if (!isAdmin) return;
+    setAi1PerformanceLoading(true);
+    setAi1PerformanceError('');
+    try {
+      const [metricsResp, thresholdResp, acceptanceResp] = await Promise.all([
+        aiService.getAi1Metrics(),
+        aiService.getAi1ThresholdAccuracy(),
+        aiService.getAi1AcceptanceSummary(),
+      ]);
+
+      setAi1Metrics(
+        (metricsResp?.data || []).map((row: any) => ({
+          horizon: parseNumeric(row.horizon),
+          model: String(row.model || ''),
+          mae: parseNumeric(row.mae),
+          rmse: parseNumeric(row.rmse),
+        }))
+      );
+      setAi1Thresholds(
+        (thresholdResp?.data || []).map((row: any) => ({
+          model: String(row.model || ''),
+          horizon: parseNumeric(row.horizon),
+          tolerance_ppt: parseNumeric(row.tolerance_ppt),
+          accuracy_pct: parseNumeric(row.accuracy_pct),
+          target_accuracy_pct: parseNumeric(row.target_accuracy_pct),
+          accuracy_status: String(row.accuracy_status || ''),
+        }))
+      );
+      setAi1Acceptance(
+        (acceptanceResp?.data || []).map((row: any) => ({
+          horizon: parseNumeric(row.horizon),
+          selected_model: String(row.selected_model || ''),
+          vs_baseline_status: String(row.vs_baseline_status || ''),
+          within_tolerance_accuracy_pct: parseNumeric(row.within_tolerance_accuracy_pct),
+          overall_status: String(row.overall_status || ''),
+        }))
+      );
+    } catch (error: any) {
+      console.error(error);
+      setAi1PerformanceError(getApiErrorDetail(error));
+      setAi1Metrics([]);
+      setAi1Thresholds([]);
+      setAi1Acceptance([]);
+    } finally {
+      setAi1PerformanceLoading(false);
     }
   };
 
@@ -466,8 +620,8 @@ export const Analysis: React.FC = () => {
 
   useEffect(() => {
     fetchData();
-    fetchReportAssets();
     fetchAiMetadata();
+    fetchAi1Performance();
   }, []);
 
   const handleFarmChange = async (farmId: string) => {
@@ -520,14 +674,32 @@ export const Analysis: React.FC = () => {
             <p>{selectedFarmInfo?.farm_code || 'Hệ thống sẽ tự nạp dữ liệu khi bạn chọn trang trại.'}</p>
           </div>
           <div className="analysis-summary-card analysis-summary-card-forecast">
-            <span className="analysis-summary-label">Tỉnh dùng cho AI1</span>
-            <strong>{selectedProvince || 'Đang xác định khu vực'}</strong>
-            <p>Dự báo 7 ngày và biểu đồ báo cáo được gom riêng để dễ đọc hơn.</p>
+            <span className="analysis-summary-label">AI1: Dự báo 7 ngày</span>
+            <strong>
+              {forecastLoading
+                ? 'Đang cập nhật...'
+                : forecastOverview
+                  ? `${forecastOverview.peak.salinityValue.toFixed(2)} ‰ cao nhất`
+                  : 'Chưa có dữ liệu'}
+            </strong>
+            <p>
+              {forecastOverview
+                ? `${forecastOverview.warningDays} ngày cần lưu ý, đỉnh mặn vào ${formatShortDate(forecastOverview.peak.date)}.`
+                : 'Hệ thống sẽ hiển thị ngày mặn cao nhất và số ngày cần lưu ý.'}
+            </p>
           </div>
           <div className="analysis-summary-card analysis-summary-card-risk">
-            <span className="analysis-summary-label">Mức rủi ro hiện tại</span>
+            <span className="analysis-summary-label">AI2: Mức rủi ro</span>
             <strong>{riskLoading ? 'Đang đánh giá...' : formatRiskLabel(risk?.risk_label)}</strong>
             <p>AI2 tập trung vào cảnh báo và ưu tiên xử lý cho từng trang trại.</p>
+          </div>
+          <div className="analysis-summary-card analysis-summary-card-decision">
+            <span className="analysis-summary-label">AI3: Gợi ý vận hành</span>
+            <strong>{decisionLoading ? 'Đang tổng hợp...' : formatUrgency(decision?.urgency)}</strong>
+            <p>
+              {decision?.decision ||
+                'AI3 sẽ gợi ý hành động ưu tiên để bà con xử lý nhanh theo tình hình thực tế.'}
+            </p>
           </div>
         </div>
       </section>
@@ -545,6 +717,12 @@ export const Analysis: React.FC = () => {
           <Brain size={16} />
           AI3: Gợi ý vận hành
         </a>
+        {isAdmin && (
+          <a href="#analysis-ai1-performance" className="analysis-anchor">
+            <Sparkles size={16} />
+            AI1: Hiệu năng model
+          </a>
+        )}
       </nav>
 
       <div className="analysis-top-grid">
@@ -650,8 +828,8 @@ export const Analysis: React.FC = () => {
             <span className="analysis-kicker">AI1</span>
             <h2>AI1: Dự báo độ mặn trong 7 ngày</h2>
             <p>
-              Theo dõi khu vực dự báo, độ mặn từng ngày và biểu đồ báo cáo AI1 trong một cụm riêng, không
-              trộn với AI2 hoặc AI3.
+              Theo dõi độ mặn từng ngày và xem ngay những mốc cần lưu ý để quyết định lấy nước, đóng mở
+              cống hay tăng tần suất đo trong ngày.
             </p>
           </div>
           <div className="analysis-section-meta">
@@ -670,9 +848,43 @@ export const Analysis: React.FC = () => {
             {forecastNotice && <div className="analysis-state analysis-state-warn">{forecastNotice}</div>}
 
             <div className="analysis-meta-line">
-              Cập nhật lúc {forecast.as_of} | Mô hình: {forecast.model_version}
-              {forecast.model_set_used ? ` (${forecast.model_set_used})` : ''}
+              Cập nhật lúc {forecast.as_of} | Dự báo cho {selectedProvince || forecast.province}
             </div>
+
+            {forecastOverview && (
+              <div className="analysis-ai1-overview-grid">
+                <div className="analysis-ai1-overview-card analysis-ai1-overview-card-peak">
+                  <span className="analysis-highlight-label">Đỉnh mặn 7 ngày tới</span>
+                  <strong>{forecastOverview.peak.salinityValue.toFixed(2)} ‰</strong>
+                  <p>
+                    Cao nhất ở D+{forecastOverview.peak.day_ahead}, ngày{' '}
+                    {formatShortDate(forecastOverview.peak.date)}.
+                  </p>
+                </div>
+
+                <div className="analysis-ai1-overview-card analysis-ai1-overview-card-window">
+                  <span className="analysis-highlight-label">Ngày cần lưu ý</span>
+                  <strong>{forecastOverview.warningDays} ngày</strong>
+                  <p>
+                    {forecastOverview.saferDay
+                      ? `Ngày dễ lấy nước hơn là D+${forecastOverview.saferDay.day_ahead} (${formatShortDate(
+                          forecastOverview.saferDay.date
+                        )}).`
+                      : 'Chưa thấy ngày nào dưới ngưỡng 4.0 ‰ trong 7 ngày tới.'}
+                  </p>
+                </div>
+
+                <div className="analysis-ai1-overview-card analysis-ai1-overview-card-guidance">
+                  <span className="analysis-highlight-label">Gợi ý nhanh từ AI1</span>
+                  <strong>
+                    {forecastOverview.severeDays > 0
+                      ? `${forecastOverview.severeDays} ngày mặn cao`
+                      : `${forecastOverview.safeDays} ngày tương đối ổn`}
+                  </strong>
+                  <p>{forecastOverview.guidance}</p>
+                </div>
+              </div>
+            )}
 
             <div className="analysis-table-wrap">
               <table className="analysis-data-table">
@@ -732,60 +944,110 @@ export const Analysis: React.FC = () => {
             </button>
           </div>
         )}
+      </section>
 
-        <div className="analysis-report-shell">
-          <div className="analysis-subsection-head">
-            <Sparkles size={18} />
-            <h3>Biểu đồ và chỉ số báo cáo AI1</h3>
+      {isAdmin && (
+        <section id="analysis-ai1-performance" className="analysis-section analysis-section-admin glass-card">
+          <div className="analysis-section-header">
+            <div>
+              <span className="analysis-kicker">ADMIN</span>
+              <h2>AI1: Hiệu năng mô hình</h2>
+              <p>
+                Khối này dành cho quản trị để theo dõi chất lượng AI1 sau huấn luyện, so sánh
+                `xgboost` với `baseline_linear` và kiểm tra trạng thái pass.
+              </p>
+            </div>
+            <div className="analysis-section-meta">
+              <span className="analysis-meta-pill">Chỉ hiển thị cho quản trị</span>
+            </div>
           </div>
 
-          {reportsLoading ? (
+          {ai1PerformanceLoading ? (
             <div className="analysis-loading">
-              <Loader2 className="animate-spin" size={20} />
+              <Loader2 className="animate-spin" size={22} />
             </div>
-          ) : (
+          ) : ai1PerformanceError ? (
+            <div className="analysis-state analysis-state-error">{ai1PerformanceError}</div>
+          ) : ai1PerformanceSummary ? (
             <>
-              {reportMetrics.length > 0 && (
-                <div className="analysis-table-wrap">
-                  <table className="analysis-data-table">
-                    <thead>
-                      <tr>
-                        <th>Khoảng dự báo</th>
-                        <th>Mô hình</th>
-                        <th>MAE</th>
-                        <th>RMSE</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {reportMetrics.map((item, index) => (
-                        <tr key={`${item.model}-${item.horizon}-${index}`}>
-                          <td>D+{item.horizon}</td>
-                          <td>{item.model}</td>
-                          <td>{Number(item.mae).toFixed(4)}</td>
-                          <td>{Number(item.rmse).toFixed(4)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+              <div className="analysis-admin-grid">
+                <div className="analysis-admin-card">
+                  <span className="analysis-highlight-label">Mô hình đang chọn</span>
+                  <strong>xgboost</strong>
+                  <p>Champion hiện tại của AI1 theo bảng acceptance.</p>
                 </div>
-              )}
+                <div className="analysis-admin-card">
+                  <span className="analysis-highlight-label">Số Horizon Thắng</span>
+                  <strong>
+                    {ai1PerformanceSummary.wins}/{ai1PerformanceSummary.total}
+                  </strong>
+                  <p>XGBoost đang tốt hơn linear ở toàn bộ horizon.</p>
+                </div>
+                <div className="analysis-admin-card">
+                  <span className="analysis-highlight-label">Cải thiện RMSE TB</span>
+                  <strong>{ai1PerformanceSummary.avgRmseImprovementPct.toFixed(2)}%</strong>
+                  <p>Mức cải thiện trung bình so với baseline_linear.</p>
+                </div>
+                <div className="analysis-admin-card">
+                  <span className="analysis-highlight-label">Accuracy TB</span>
+                  <strong>{ai1PerformanceSummary.avgAccuracy.toFixed(2)}%</strong>
+                  <p>{ai1PerformanceSummary.overallPass ? 'Pass toàn bộ 7/7 horizon.' : 'Cần kiểm tra lại một số horizon.'}</p>
+                </div>
+              </div>
 
-              {reportCharts.length === 0 ? (
-                <div className="analysis-empty">Chưa có biểu đồ báo cáo AI1. Hãy huấn luyện mô hình để tạo thêm dữ liệu.</div>
-              ) : (
-                <div className="analysis-report-grid">
-                  {reportCharts.map((chart) => (
-                    <div key={chart.name} className="analysis-report-card">
-                      <div className="analysis-report-name">{chart.name}</div>
-                      <img src={chart.url} alt={chart.name} />
-                    </div>
-                  ))}
-                </div>
-              )}
+              <div className="analysis-table-wrap">
+                <table className="analysis-data-table">
+                  <thead>
+                    <tr>
+                      <th>Horizon</th>
+                      <th>Linear RMSE</th>
+                      <th>XGBoost RMSE</th>
+                      <th>Linear MAE</th>
+                      <th>XGBoost MAE</th>
+                      <th>Accuracy</th>
+                      <th>Kết luận</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ai1PerformanceSummary.rows.map((row) => (
+                      <tr key={row.horizon}>
+                        <td>D+{row.horizon}</td>
+                        <td>{row.baselineRmse.toFixed(4)}</td>
+                        <td>{row.xgbRmse.toFixed(4)}</td>
+                        <td>{row.baselineMae.toFixed(4)}</td>
+                        <td>{row.xgbMae.toFixed(4)}</td>
+                        <td>
+                          <span className="analysis-soft-chip">
+                            {row.accuracyPct.toFixed(2)}% / {row.targetAccuracyPct.toFixed(0)}%
+                          </span>
+                        </td>
+                        <td>
+                          <span
+                            className="analysis-value-chip"
+                            style={{
+                              color: row.overallStatus === 'pass' ? '#047857' : '#b45309',
+                              background:
+                                row.overallStatus === 'pass'
+                                  ? 'rgba(220, 252, 231, 0.92)'
+                                  : 'rgba(254, 243, 199, 0.92)',
+                            }}
+                          >
+                            {row.winner === 'xgboost'
+                              ? `XGBoost +${row.rmseImprovementPct.toFixed(1)}%`
+                              : 'Linear tốt hơn'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </>
+          ) : (
+            <div className="analysis-empty">Chưa có dữ liệu đánh giá AI1 để hiển thị.</div>
           )}
-        </div>
-      </section>
+        </section>
+      )}
 
       <section id="analysis-ai2" className="analysis-section analysis-section-ai2 glass-card">
         <div className="analysis-section-header">
@@ -956,7 +1218,8 @@ export const Analysis: React.FC = () => {
 
         <div className="analysis-footnote">
           <AlertCircle size={16} />
-          Dự báo thuộc cụm AI1. Nếu bạn vừa huấn luyện hoặc cập nhật mô hình, hãy tải lại trang để xem kết quả mới nhất.
+          Trang này đang gom AI1, AI2 và AI3 vào cùng một luồng theo dõi để bà con xem dự báo, mức rủi ro
+          và gợi ý hành động ngay trên một màn hình.
         </div>
       </section>
     </div>

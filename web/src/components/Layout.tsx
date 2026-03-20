@@ -46,6 +46,7 @@ export const Layout: React.FC = () => {
 
   const menuItems = role === 'admin'
     ? [
+        { path: '/dashboard/analysis', icon: <Brain size={22} />, label: 'Mô hình AI' },
         { path: '/dashboard/admin/stations', icon: <Radio size={22} />, label: 'Quản lý trạm' },
         { path: '/dashboard/admin/iot', icon: <Cpu size={22} />, label: 'Thiết bị IoT' },
         { path: '/dashboard/users', icon: <Users size={22} />, label: 'Người dùng' },

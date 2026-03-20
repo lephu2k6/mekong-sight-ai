@@ -6,13 +6,18 @@ export const aiService = {
         return response.data;
     },
 
-    getReportCharts: async () => {
-        const response = await api.get('/ai/reports/charts');
+    getAi1Metrics: async () => {
+        const response = await api.get('/ai/reports/metrics');
         return response.data;
     },
 
-    getReportMetrics: async () => {
-        const response = await api.get('/ai/reports/metrics');
+    getAi1ThresholdAccuracy: async () => {
+        const response = await api.get('/ai/reports/threshold-accuracy');
+        return response.data;
+    },
+
+    getAi1AcceptanceSummary: async () => {
+        const response = await api.get('/ai/reports/acceptance-summary');
         return response.data;
     },
 
