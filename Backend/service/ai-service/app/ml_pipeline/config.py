@@ -19,6 +19,8 @@ DEFAULT_METRICS_CSV = REPORTS_DIR / "metrics_summary.csv"
 DEFAULT_BACKTEST_METRICS_CSV = REPORTS_DIR / "backtest_metrics_summary.csv"
 DEFAULT_LSTM_METRICS_CSV = REPORTS_DIR / "lstm_pilot_metrics.csv"
 DEFAULT_REGRESSION_CHECK_CSV = REPORTS_DIR / "regression_check.csv"
+DEFAULT_THRESHOLD_METRICS_CSV = REPORTS_DIR / "threshold_accuracy_summary.csv"
+DEFAULT_ACCEPTANCE_SUMMARY_CSV = REPORTS_DIR / "acceptance_summary.csv"
 DEFAULT_REPORT_PATH = REPORTS_DIR / "report_ai1.md"
 DEFAULT_METADATA_PATH = MODELS_DIR / "metadata.json"
 
@@ -34,14 +36,29 @@ LSTM_HIDDEN_SIZES: Sequence[int] = (32, 64)
 LSTM_DROPOUTS: Sequence[float] = (0.1, 0.2)
 LSTM_EPOCHS = 60
 LSTM_PATIENCE = 10
+DEFAULT_ERROR_TOLERANCE_PPT = 0.5
+DEFAULT_ACCEPTANCE_THRESHOLD_PCT = 80.0
+DEFAULT_ACCEPTANCE_RULES: Dict[int, Dict[str, float]] = {
+    1: {"tolerance_ppt": 0.75, "target_accuracy_pct": 75.0},
+    2: {"tolerance_ppt": 0.75, "target_accuracy_pct": 75.0},
+    3: {"tolerance_ppt": 1.0, "target_accuracy_pct": 65.0},
+    4: {"tolerance_ppt": 1.0, "target_accuracy_pct": 65.0},
+    5: {"tolerance_ppt": 1.0, "target_accuracy_pct": 65.0},
+    6: {"tolerance_ppt": 1.25, "target_accuracy_pct": 55.0},
+    7: {"tolerance_ppt": 1.25, "target_accuracy_pct": 55.0},
+}
 
+XGB_ANCHOR_COLUMNS: Sequence[str] = ("sal_t-1", "sal_3d_avg", "sal_7d_avg")
+XGB_DELTA_SCALES: Sequence[float] = (0.2, 0.4, 0.6, 0.8, 1.0)
 
 XGB_PARAM_GRID: Dict[str, List[float]] = {
-    "max_depth": [4, 6, 8],
-    "learning_rate": [0.03, 0.05],
-    "n_estimators": [300, 500],
-    "subsample": [0.8, 1.0],
-    "colsample_bytree": [0.8, 1.0],
+    "max_depth": [1, 2],
+    "learning_rate": [0.02, 0.03],
+    "n_estimators": [200, 250],
+    "subsample": [0.8, 0.85],
+    "colsample_bytree": [0.8],
+    "min_child_weight": [5, 6, 8],
+    "reg_lambda": [4.0, 5.0],
 }
 
 

@@ -1,0 +1,8 @@
+case_id,crop_mode,stage,risk_label,risk_score,max_salinity_7d,min_salinity_7d,expected_decision,actual_decision,decision_match,expected_urgency,actual_urgency,urgency_match,action_count,reason
+rice_late_high_salinity,rice,late,Medium,0.62,4.8,3.9,Thu hoạch khẩn cấp,Thu hoạch khẩn cấp,True,critical,critical,True,4,Có từ 3/7 ngày dự báo độ mặn > 4‰ trong giai đoạn lúa cuối vụ.
+rice_safe_low_salinity,rice,mid,Low,0.22,0.6,0.2,Tiếp tục vụ lúa,Tiếp tục vụ lúa,True,normal,normal,True,3,Mức mặn dự báo thấp (<1‰) và rủi ro hiện tại không cao.
+rice_prepare_shrimp_dry_season,rice,mid,Medium,0.51,3.7,1.2,Chuẩn bị chuyển vụ tôm,Chuẩn bị chuyển vụ tôm,True,warning,warning,True,3,"Độ mặn dự báo 1-4‰ trong mùa khô, phù hợp chuẩn bị chuyển vụ tôm-lúa."
+rice_high_risk_override,rice,early,High,0.83,1.4,1.0,Thu hoạch khẩn cấp,Thu hoạch khẩn cấp,True,critical,critical,True,3,AI2 đánh giá rủi ro hiện tại ở mức High.
+shrimp_high_risk_emergency,shrimp,mid,High,0.88,16.0,13.5,Điều tiết nước khẩn cấp,Điều tiết nước khẩn cấp,True,critical,critical,True,3,AI2 cho thấy rủi ro cao với độ tin cậy lớn.
+shrimp_prepare_rice_low_salinity,shrimp,late,Medium,0.56,5.1,2.4,Chuẩn bị chuyển vụ lúa,Chuẩn bị chuyển vụ lúa,True,warning,warning,True,3,"Nhiều ngày độ mặn dự báo thấp (<5‰), cần cân nhắc chuyển vụ lúa."
+shrimp_continue_normal,shrimp,early,Medium,0.44,11.0,8.5,Tiếp tục vụ tôm,Tiếp tục vụ tôm,True,normal,normal,True,3,Dự báo và rủi ro hiện tại nằm trong vùng có thể vận hành cho vụ tôm.

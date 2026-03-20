@@ -123,6 +123,8 @@ class TestTrainingIntegration(unittest.TestCase):
         self.assertTrue((reports_dir / "backtest_metrics_summary.csv").exists())
         self.assertTrue((reports_dir / "lstm_pilot_metrics.csv").exists())
         self.assertTrue((reports_dir / "regression_check.csv").exists())
+        self.assertTrue((reports_dir / "threshold_accuracy_summary.csv").exists())
+        self.assertTrue((reports_dir / "acceptance_summary.csv").exists())
 
         service = ForecastService()
         for model_set in ("champion", "baseline", "xgboost"):

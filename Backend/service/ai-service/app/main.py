@@ -548,6 +548,16 @@ def get_regression_check():
     return {"success": True, "data": _read_csv_report("regression_check.csv")}
 
 
+@app.get("/api/ai/reports/threshold-accuracy")
+def get_threshold_accuracy():
+    return {"success": True, "data": _read_csv_report("threshold_accuracy_summary.csv")}
+
+
+@app.get("/api/ai/reports/acceptance-summary")
+def get_acceptance_summary():
+    return {"success": True, "data": _read_csv_report("acceptance_summary.csv")}
+
+
 @app.get("/api/ai/model/metadata")
 def get_model_metadata():
     return {"success": True, "data": _read_model_metadata()}

@@ -1,0 +1,8 @@
+horizon,selected_model,evaluation_model,selected_rmse,evaluation_rmse,baseline_rmse,vs_baseline_status,within_tolerance_accuracy_pct,tolerance_ppt,target_accuracy_pct,accuracy_status,selection_status,regression_status,overall_status
+1,xgboost,xgboost,0.3822192904453062,0.3822192904453062,0.5509252024885476,pass,94.98069498069498,0.75,75.0,pass,pass,pass,pass
+2,xgboost,xgboost,0.42034853732301947,0.42034853732301947,0.5638100118911452,pass,93.82239382239382,0.75,75.0,pass,pass,not_checked,pass
+3,xgboost,xgboost,0.48557809264009366,0.48557809264009366,0.6938947149438298,pass,97.2972972972973,1.0,65.0,pass,pass,pass,pass
+4,xgboost,xgboost,0.5086085914511064,0.5086085914511064,0.7172564353682445,pass,97.2972972972973,1.0,65.0,pass,pass,not_checked,pass
+5,xgboost,xgboost,0.5307748980981805,0.5307748980981805,0.825843005699023,pass,95.75289575289575,1.0,65.0,pass,pass,not_checked,pass
+6,xgboost,xgboost,0.6116877123110526,0.6116877123110526,0.9329804923752888,pass,98.84169884169884,1.25,55.0,pass,pass,not_checked,pass
+7,xgboost,xgboost,0.6628882985055694,0.6628882985055694,1.0288947837791993,pass,97.68339768339769,1.25,55.0,pass,pass,pass,pass

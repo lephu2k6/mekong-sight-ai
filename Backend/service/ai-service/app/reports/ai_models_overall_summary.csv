@@ -1,0 +1,4 @@
+ai_model,evaluation_type,test_rows_per_horizon,horizons,selected_model,pass_horizons,avg_rmse_xgboost,avg_mae_xgboost,avg_accuracy_pct,rmse_improvement_vs_baseline_pct,status
+AI1_forecast,time_series_regression,259,D+1..D+7,xgboost,7/7,0.511138262635258,0.43265819405230366,96.69056811913956,32.66401856274578,pass
+AI2_risk,multiclass_classification,358,-,xgboost,-,,,87.43016759776536,,pass
+AI3_decision,rule_based_scenario_validation,7,-,rule_engine,-,,,100.0,,pass

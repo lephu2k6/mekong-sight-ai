@@ -12,7 +12,7 @@ import pandas as pd
 
 from .config import DEFAULT_METADATA_PATH, DEFAULT_PREPARED_DAILY_CSV, DEFAULT_WEATHER_CSV
 from .data_loader import build_daily_dataset, normalize_province_name
-from .feature_builder import build_feature_frame, encode_features
+from .feature_builder import add_advanced_xgb_features, build_feature_frame, encode_features
 
 
 @dataclass
@@ -121,17 +121,36 @@ class ForecastService:
             use_supabase_fallback=use_supabase_fallback,
         )
 
-    def _resolve_model(self, horizon: int, model_set: str) -> object:
+    def _resolve_model_name(self, horizon: int, model_set: str) -> str:
         if model_set == "xgboost":
-            return self.xgboost_models[int(horizon)]
+            return "xgboost"
         if model_set == "baseline":
-            return self.baseline_models[int(horizon)]
+            return "baseline_linear"
 
         champion_map = self.metadata.get("champion_by_horizon", {})
-        champion = champion_map.get(f"day{horizon}", "xgboost")
-        if champion == "baseline_linear":
-            return self.baseline_models[int(horizon)]
-        return self.xgboost_models[int(horizon)]
+        return champion_map.get(f"day{horizon}", "xgboost")
+
+    def _resolve_feature_spec(self, model_name: str) -> tuple[list[str], list[str]]:
+        if model_name == "baseline_linear":
+            numeric_cols = self.metadata.get(
+                "baseline_numeric_feature_columns",
+                self.metadata.get("numeric_feature_columns", []),
+            )
+            expected_cols = self.metadata.get(
+                "baseline_feature_columns",
+                self.metadata.get("feature_columns", []),
+            )
+            return list(numeric_cols), list(expected_cols)
+
+        numeric_cols = self.metadata.get(
+            "xgboost_numeric_feature_columns",
+            self.metadata.get("numeric_feature_columns", []),
+        )
+        expected_cols = self.metadata.get(
+            "xgboost_feature_columns",
+            self.metadata.get("feature_columns", []),
+        )
+        return list(numeric_cols), list(expected_cols)
 
     def forecast(
         self,
@@ -150,8 +169,13 @@ class ForecastService:
 
         base_daily = self._load_daily_dataset()
         feature_frame, feature_cols, _ = build_feature_frame(base_daily, include_targets=False)
+        feature_frame, _ = add_advanced_xgb_features(feature_frame, feature_cols)
         province_frame = feature_frame[feature_frame["province"] == normalized_province].copy()
-        province_frame = province_frame.dropna(subset=feature_cols)
+        xgb_numeric_cols = self.metadata.get(
+            "xgboost_numeric_feature_columns",
+            self.metadata.get("numeric_feature_columns", feature_cols),
+        )
+        province_frame = province_frame.dropna(subset=xgb_numeric_cols)
         if province_frame.empty:
             raise ForecastError(422, "Not enough history to build forecast features.")
 
@@ -169,16 +193,21 @@ class ForecastService:
 
         latest_row = province_frame.sort_values("date").iloc[[-1]].copy()
         province_cols = self.metadata.get("province_dummy_columns", [])
-        x_latest = encode_features(latest_row, feature_cols, province_cols)
-        expected_cols = self.metadata.get("feature_columns", [])
-        for column in expected_cols:
-            if column not in x_latest.columns:
-                x_latest[column] = 0
-        x_latest = x_latest[expected_cols]
 
         points: List[ForecastPoint] = []
         for horizon in sorted(self.xgboost_models.keys()):
-            model = self._resolve_model(horizon=int(horizon), model_set=requested_model_set)
+            model_name = self._resolve_model_name(horizon=int(horizon), model_set=requested_model_set)
+            model = (
+                self.baseline_models[int(horizon)]
+                if model_name == "baseline_linear"
+                else self.xgboost_models[int(horizon)]
+            )
+            numeric_cols, expected_cols = self._resolve_feature_spec(model_name)
+            x_latest = encode_features(latest_row, numeric_cols, province_cols)
+            for column in expected_cols:
+                if column not in x_latest.columns:
+                    x_latest[column] = 0
+            x_latest = x_latest[expected_cols]
             pred = float(model.predict(x_latest)[0])
             points.append(
                 ForecastPoint(

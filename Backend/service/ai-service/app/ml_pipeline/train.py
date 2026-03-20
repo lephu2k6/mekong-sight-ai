@@ -18,6 +18,10 @@ from .config import (
     BACKTEST_VAL_DAYS,
     CHARTS_DIR,
     DEFAULT_BACKTEST_METRICS_CSV,
+    DEFAULT_ACCEPTANCE_SUMMARY_CSV,
+    DEFAULT_ACCEPTANCE_RULES,
+    DEFAULT_ACCEPTANCE_THRESHOLD_PCT,
+    DEFAULT_ERROR_TOLERANCE_PPT,
     DEFAULT_LSTM_METRICS_CSV,
     DEFAULT_METADATA_PATH,
     DEFAULT_METRICS_CSV,
@@ -25,6 +29,7 @@ from .config import (
     DEFAULT_PREPARED_DAILY_CSV,
     DEFAULT_REGRESSION_CHECK_CSV,
     DEFAULT_REPORT_PATH,
+    DEFAULT_THRESHOLD_METRICS_CSV,
     DEFAULT_TRAIN_FEATURES_CSV,
     DEFAULT_WEATHER_CSV,
     FORECAST_HORIZONS,
@@ -35,6 +40,8 @@ from .config import (
     LSTM_SEQUENCE_LENGTH,
     MIN_VALID_DAYS_PER_PROVINCE,
     MODELS_DIR,
+    XGB_ANCHOR_COLUMNS,
+    XGB_DELTA_SCALES,
     XGB_PARAM_GRID,
     ensure_directories,
     grid_product,
@@ -43,12 +50,16 @@ from .data_loader import build_daily_dataset
 from .data_loader import load_local_combined_csv, load_salinity_json_folder
 from .evaluate import (
     build_rolling_origin_windows,
+    choose_champion_by_policy,
+    build_acceptance_summary,
     evaluate_horizon_predictions,
+    policy_threshold_table,
     regression_metrics,
     season_error_table,
     summarize_backtest_metrics,
 )
 from .feature_builder import (
+    add_advanced_xgb_features,
     build_feature_frame,
     encode_features,
     filter_valid_provinces,
@@ -61,6 +72,7 @@ from .report import (
     generate_error_by_season_chart,
     write_report,
 )
+from .residual_model import AnchoredXGBRegressor
 
 try:
     from xgboost import XGBRegressor
@@ -68,35 +80,156 @@ except ImportError as exc:  # pragma: no cover - runtime dependency check
     raise ImportError("Thieu xgboost. Hay cai xgboost trong requirements.txt") from exc
 
 
-def _quick_grid() -> Dict[str, list]:
-    return {
-        "max_depth": [4],
-        "learning_rate": [0.05],
-        "n_estimators": [120],
-        "subsample": [0.8],
-        "colsample_bytree": [0.8],
-    }
+def _quick_xgb_candidates() -> List[Dict[str, float]]:
+    return [
+        {
+            "max_depth": 2,
+            "learning_rate": 0.02,
+            "n_estimators": 250,
+            "subsample": 0.85,
+            "colsample_bytree": 0.8,
+            "min_child_weight": 6,
+            "reg_lambda": 4.0,
+        },
+        {
+            "max_depth": 2,
+            "learning_rate": 0.03,
+            "n_estimators": 200,
+            "subsample": 0.8,
+            "colsample_bytree": 0.8,
+            "min_child_weight": 8,
+            "reg_lambda": 5.0,
+        },
+        {
+            "max_depth": 1,
+            "learning_rate": 0.03,
+            "n_estimators": 350,
+            "subsample": 0.9,
+            "colsample_bytree": 0.8,
+            "min_child_weight": 5,
+            "reg_lambda": 4.0,
+        },
+    ]
 
 
 def _rmse(y_true: pd.Series, y_pred: np.ndarray) -> float:
     return float(np.sqrt(np.mean((np.asarray(y_true) - np.asarray(y_pred)) ** 2)))
 
 
+def _fit_anchor_xgboost(
+    x_train: pd.DataFrame,
+    x_val: pd.DataFrame,
+    y_train: pd.Series,
+    y_val: pd.Series,
+    param_candidates: List[Dict[str, float]],
+    anchor_columns: List[str],
+    delta_scales: List[float],
+) -> Tuple[AnchoredXGBRegressor, Dict[str, float], float]:
+    best_model = None
+    best_settings = None
+    best_rmse = float("inf")
+
+    for anchor_column in anchor_columns:
+        train_anchor = np.asarray(x_train[anchor_column], dtype=float)
+        val_anchor = np.asarray(x_val[anchor_column], dtype=float)
+        delta_train = np.asarray(y_train, dtype=float) - train_anchor
+        delta_val = np.asarray(y_val, dtype=float) - val_anchor
+
+        for params in param_candidates:
+            candidate = XGBRegressor(
+                objective="reg:squarederror",
+                random_state=42,
+                n_jobs=4,
+                **params,
+            )
+            candidate.fit(x_train, delta_train, eval_set=[(x_val, delta_val)], verbose=False)
+            delta_val_pred = candidate.predict(x_val)
+
+            for delta_scale in delta_scales:
+                val_pred = val_anchor + float(delta_scale) * delta_val_pred
+                val_rmse = _rmse(y_val, val_pred)
+                if val_rmse < best_rmse:
+                    best_rmse = val_rmse
+                    best_model = candidate
+                    best_settings = {
+                        **params,
+                        "anchor_column": anchor_column,
+                        "delta_scale": float(delta_scale),
+                    }
+
+    if best_model is None or best_settings is None:
+        raise RuntimeError("Khong chon duoc anchored XGBoost model.")
+
+    wrapper = AnchoredXGBRegressor(
+        anchor_column=str(best_settings["anchor_column"]),
+        delta_model=best_model,
+        delta_scale=float(best_settings["delta_scale"]),
+        clip_min=0.0,
+    )
+    return wrapper, best_settings, best_rmse
+
+
+def _build_anchor_xgboost_wrapper(
+    x_train: pd.DataFrame,
+    y_train: pd.Series,
+    x_val: pd.DataFrame,
+    y_val: pd.Series,
+    settings: Dict[str, float],
+) -> AnchoredXGBRegressor:
+    anchor_column = str(settings["anchor_column"])
+    params = {
+        key: value
+        for key, value in settings.items()
+        if key not in {"anchor_column", "delta_scale"}
+    }
+    train_anchor = np.asarray(x_train[anchor_column], dtype=float)
+    val_anchor = np.asarray(x_val[anchor_column], dtype=float)
+    delta_train = np.asarray(y_train, dtype=float) - train_anchor
+    delta_val = np.asarray(y_val, dtype=float) - val_anchor
+
+    candidate = XGBRegressor(
+        objective="reg:squarederror",
+        random_state=42,
+        n_jobs=4,
+        **params,
+    )
+    candidate.fit(x_train, delta_train, eval_set=[(x_val, delta_val)], verbose=False)
+    return AnchoredXGBRegressor(
+        anchor_column=anchor_column,
+        delta_model=candidate,
+        delta_scale=float(settings["delta_scale"]),
+        clip_min=0.0,
+    )
+
+
 def _train_holdout_models(
     split,
-    feature_cols: List[str],
+    baseline_feature_cols: List[str],
+    xgb_feature_cols: List[str],
     province_cols: List[str],
-    param_grid: Dict[str, list],
-) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str, Dict[str, float]], Dict[str, str], Dict[str, Dict[str, float]], List[str]]:
-    x_train = encode_features(split.train, feature_cols, province_cols)
-    x_val = encode_features(split.val, feature_cols, province_cols)
-    x_test = encode_features(split.test, feature_cols, province_cols)
-    encoded_feature_cols = list(x_train.columns)
+    xgb_param_candidates: List[Dict[str, float]],
+) -> Tuple[
+    pd.DataFrame,
+    pd.DataFrame,
+    Dict[str, Dict[str, float]],
+    Dict[str, str],
+    Dict[str, Dict[str, float]],
+    List[str],
+    List[str],
+]:
+    baseline_x_train = encode_features(split.train, baseline_feature_cols, province_cols)
+    baseline_x_val = encode_features(split.val, baseline_feature_cols, province_cols)
+    baseline_x_test = encode_features(split.test, baseline_feature_cols, province_cols)
+    xgb_x_train = encode_features(split.train, xgb_feature_cols, province_cols)
+    xgb_x_val = encode_features(split.val, xgb_feature_cols, province_cols)
+    xgb_x_test = encode_features(split.test, xgb_feature_cols, province_cols)
+    encoded_baseline_feature_cols = list(baseline_x_train.columns)
+    encoded_xgb_feature_cols = list(xgb_x_train.columns)
 
     metrics_rows: List[Dict[str, float]] = []
     prediction_frames: List[pd.DataFrame] = []
-    best_params_map: Dict[str, Dict[str, float]] = {}
-    champion_by_horizon: Dict[str, str] = {}
+    best_settings_map: Dict[str, Dict[str, float]] = {}
+    validation_champion_by_horizon: Dict[str, str] = {}
     validation_metrics: Dict[str, Dict[str, float]] = {}
 
     for horizon in FORECAST_HORIZONS:
@@ -106,38 +239,23 @@ def _train_holdout_models(
         y_test = split.test[target_col]
 
         baseline = LinearRegression()
-        baseline.fit(x_train, y_train)
-        baseline_val_pred = baseline.predict(x_val)
-        baseline_test_pred = baseline.predict(x_test)
+        baseline.fit(baseline_x_train, y_train)
+        baseline_val_pred = baseline.predict(baseline_x_val)
+        baseline_test_pred = baseline.predict(baseline_x_test)
         baseline_val_rmse = _rmse(y_val, baseline_val_pred)
-
-        best_model = None
-        best_params = None
-        best_rmse = float("inf")
-
-        for params in grid_product(param_grid):
-            candidate = XGBRegressor(
-                objective="reg:squarederror",
-                random_state=42,
-                n_jobs=4,
-                **params,
-            )
-            candidate.fit(x_train, y_train, eval_set=[(x_val, y_val)], verbose=False)
-            val_pred = candidate.predict(x_val)
-            val_rmse = _rmse(y_val, val_pred)
-            if val_rmse < best_rmse:
-                best_rmse = val_rmse
-                best_model = candidate
-                best_params = params
-
-        if best_model is None or best_params is None:
-            raise RuntimeError(f"Khong chon duoc model cho horizon day{horizon}.")
-
-        main_test_pred = best_model.predict(x_test)
-        main_val_rmse = best_rmse
+        best_model, best_settings, main_val_rmse = _fit_anchor_xgboost(
+            x_train=xgb_x_train,
+            x_val=xgb_x_val,
+            y_train=y_train,
+            y_val=y_val,
+            param_candidates=xgb_param_candidates,
+            anchor_columns=list(XGB_ANCHOR_COLUMNS),
+            delta_scales=list(XGB_DELTA_SCALES),
+        )
+        main_test_pred = best_model.predict(xgb_x_test)
 
         champion = "baseline_linear" if baseline_val_rmse <= main_val_rmse else "xgboost"
-        champion_by_horizon[f"day{horizon}"] = champion
+        validation_champion_by_horizon[f"day{horizon}"] = champion
         validation_metrics[f"day{horizon}"] = {
             "baseline_rmse": round(baseline_val_rmse, 6),
             "xgboost_rmse": round(main_val_rmse, 6),
@@ -168,7 +286,7 @@ def _train_holdout_models(
         model_path = MODELS_DIR / f"salinity_day{horizon}.pkl"
         joblib.dump(baseline, baseline_path)
         joblib.dump(best_model, model_path)
-        best_params_map[f"day{horizon}"] = best_params
+        best_settings_map[f"day{horizon}"] = best_settings
         print(f"[AI1] Saved models for day{horizon}: {model_path.name}, {baseline_path.name}")
 
     metrics_df = pd.DataFrame(metrics_rows).sort_values(["horizon", "model"]).reset_index(drop=True)
@@ -176,18 +294,20 @@ def _train_holdout_models(
     return (
         metrics_df,
         predictions_df,
-        best_params_map,
-        champion_by_horizon,
+        best_settings_map,
+        validation_champion_by_horizon,
         validation_metrics,
-        encoded_feature_cols,
+        encoded_baseline_feature_cols,
+        encoded_xgb_feature_cols,
     )
 
 
 def _run_rolling_backtest(
     frame: pd.DataFrame,
-    feature_cols: List[str],
+    baseline_feature_cols: List[str],
+    xgb_feature_cols: List[str],
     province_cols: List[str],
-    best_params_map: Dict[str, Dict[str, float]],
+    best_settings_map: Dict[str, Dict[str, float]],
 ) -> pd.DataFrame:
     unique_dates = sorted(frame["date"].dropna().unique())
     windows = build_rolling_origin_windows(
@@ -219,9 +339,12 @@ def _run_rolling_backtest(
         if train_fold.empty or val_fold.empty or test_fold.empty:
             continue
 
-        x_train = encode_features(train_fold, feature_cols, province_cols)
-        x_val = encode_features(val_fold, feature_cols, province_cols)
-        x_test = encode_features(test_fold, feature_cols, province_cols)
+        baseline_x_train = encode_features(train_fold, baseline_feature_cols, province_cols)
+        baseline_x_val = encode_features(val_fold, baseline_feature_cols, province_cols)
+        baseline_x_test = encode_features(test_fold, baseline_feature_cols, province_cols)
+        xgb_x_train = encode_features(train_fold, xgb_feature_cols, province_cols)
+        xgb_x_val = encode_features(val_fold, xgb_feature_cols, province_cols)
+        xgb_x_test = encode_features(test_fold, xgb_feature_cols, province_cols)
 
         for horizon in FORECAST_HORIZONS:
             target_col = f"y_day{horizon}"
@@ -230,8 +353,8 @@ def _run_rolling_backtest(
             y_test = test_fold[target_col]
 
             baseline = LinearRegression()
-            baseline.fit(x_train, y_train)
-            baseline_pred = baseline.predict(x_test)
+            baseline.fit(baseline_x_train, y_train)
+            baseline_pred = baseline.predict(baseline_x_test)
             baseline_metrics = regression_metrics(y_test, baseline_pred)
             rows.append(
                 {
@@ -246,17 +369,17 @@ def _run_rolling_backtest(
                 }
             )
 
-            params = best_params_map.get(f"day{horizon}")
-            if not params:
+            settings = best_settings_map.get(f"day{horizon}")
+            if not settings:
                 continue
-            xgb = XGBRegressor(
-                objective="reg:squarederror",
-                random_state=42,
-                n_jobs=4,
-                **params,
+            xgb_wrapper = _build_anchor_xgboost_wrapper(
+                x_train=xgb_x_train,
+                y_train=y_train,
+                x_val=xgb_x_val,
+                y_val=y_val,
+                settings=settings,
             )
-            xgb.fit(x_train, y_train, eval_set=[(x_val, y_val)], verbose=False)
-            xgb_pred = xgb.predict(x_test)
+            xgb_pred = xgb_wrapper.predict(xgb_x_test)
             xgb_metrics = regression_metrics(y_test, xgb_pred)
             rows.append(
                 {
@@ -597,10 +720,11 @@ def run_training(
     daily_df.to_csv(DEFAULT_PREPARED_DAILY_CSV, index=False)
     print(f"[AI1] Saved prepared daily dataset: {DEFAULT_PREPARED_DAILY_CSV}")
 
-    feature_frame, feature_cols, target_cols = build_feature_frame(daily_df, include_targets=True)
+    feature_frame, baseline_feature_cols, target_cols = build_feature_frame(daily_df, include_targets=True)
+    feature_frame, xgb_feature_cols = add_advanced_xgb_features(feature_frame, baseline_feature_cols)
     train_frame = filter_valid_provinces(
         feature_frame,
-        feature_cols=feature_cols,
+        feature_cols=xgb_feature_cols,
         target_cols=target_cols,
         min_valid_days=MIN_VALID_DAYS_PER_PROVINCE,
     )
@@ -613,30 +737,49 @@ def run_training(
     train_frame.to_csv(DEFAULT_TRAIN_FEATURES_CSV, index=False)
     print(f"[AI1] Saved training feature dataset: {DEFAULT_TRAIN_FEATURES_CSV}")
 
-    param_grid = _quick_grid() if quick_mode else XGB_PARAM_GRID
+    xgb_param_candidates = _quick_xgb_candidates() if quick_mode else list(grid_product(XGB_PARAM_GRID))
     (
         metrics_df,
         predictions_df,
-        best_params_map,
-        champion_by_horizon,
+        best_settings_map,
+        validation_champion_by_horizon,
         validation_metrics,
-        encoded_feature_cols,
+        encoded_baseline_feature_cols,
+        encoded_xgb_feature_cols,
     ) = _train_holdout_models(
         split=split,
-        feature_cols=feature_cols,
+        baseline_feature_cols=baseline_feature_cols,
+        xgb_feature_cols=xgb_feature_cols,
         province_cols=province_cols,
-        param_grid=param_grid,
+        xgb_param_candidates=xgb_param_candidates,
     )
 
     season_df = season_error_table(predictions_df)
+    threshold_df = policy_threshold_table(
+        predictions_df,
+        acceptance_rules=DEFAULT_ACCEPTANCE_RULES,
+    )
+    champion_by_horizon = choose_champion_by_policy(
+        metrics_df=metrics_df,
+        threshold_df=threshold_df,
+        fallback_champions=validation_champion_by_horizon,
+    )
     backtest_folds_df = _run_rolling_backtest(
         frame=train_frame,
-        feature_cols=feature_cols,
+        baseline_feature_cols=baseline_feature_cols,
+        xgb_feature_cols=xgb_feature_cols,
         province_cols=province_cols,
-        best_params_map=best_params_map,
+        best_settings_map=best_settings_map,
     )
     backtest_summary_df = summarize_backtest_metrics(backtest_folds_df)
     regression_check_df = _build_regression_check(metrics_df, previous_metrics)
+    acceptance_df = build_acceptance_summary(
+        metrics_df=metrics_df,
+        threshold_df=threshold_df,
+        champion_by_horizon=champion_by_horizon,
+        regression_check_df=regression_check_df,
+        acceptance_rules=DEFAULT_ACCEPTANCE_RULES,
+    )
     regression_gate_passed = bool(
         regression_check_df.empty or not (regression_check_df["status"] == "fail").any()
     )
@@ -662,11 +805,15 @@ def run_training(
     backtest_summary_df.to_csv(DEFAULT_BACKTEST_METRICS_CSV, index=False)
     lstm_metrics_df.to_csv(DEFAULT_LSTM_METRICS_CSV, index=False)
     regression_check_df.to_csv(DEFAULT_REGRESSION_CHECK_CSV, index=False)
+    threshold_df.to_csv(DEFAULT_THRESHOLD_METRICS_CSV, index=False)
+    acceptance_df.to_csv(DEFAULT_ACCEPTANCE_SUMMARY_CSV, index=False)
     print(f"[AI1] Metrics saved: {DEFAULT_METRICS_CSV}")
     print(f"[AI1] Predictions saved: {DEFAULT_PREDICTIONS_CSV}")
     print(f"[AI1] Backtest summary saved: {DEFAULT_BACKTEST_METRICS_CSV}")
     print(f"[AI1] LSTM pilot metrics saved: {DEFAULT_LSTM_METRICS_CSV}")
     print(f"[AI1] Regression check saved: {DEFAULT_REGRESSION_CHECK_CSV}")
+    print(f"[AI1] Threshold accuracy summary saved: {DEFAULT_THRESHOLD_METRICS_CSV}")
+    print(f"[AI1] Acceptance summary saved: {DEFAULT_ACCEPTANCE_SUMMARY_CSV}")
 
     chart_paths = generate_actual_vs_pred_charts(predictions_df, CHARTS_DIR)
     season_chart = generate_error_by_season_chart(season_df, CHARTS_DIR)
@@ -676,8 +823,12 @@ def run_training(
         "model_version": model_version,
         "created_at_utc": datetime.utcnow().isoformat(),
         "horizons": list(FORECAST_HORIZONS),
-        "feature_columns": encoded_feature_cols,
-        "numeric_feature_columns": feature_cols,
+        "feature_columns": encoded_xgb_feature_cols,
+        "numeric_feature_columns": xgb_feature_cols,
+        "baseline_feature_columns": encoded_baseline_feature_cols,
+        "xgboost_feature_columns": encoded_xgb_feature_cols,
+        "baseline_numeric_feature_columns": baseline_feature_cols,
+        "xgboost_numeric_feature_columns": xgb_feature_cols,
         "province_dummy_columns": province_cols,
         "provinces": provinces,
         "split": {
@@ -694,11 +845,18 @@ def run_training(
             "step_days": BACKTEST_STEP_DAYS,
             "fold_count": int(backtest_folds_df["fold_id"].nunique()) if not backtest_folds_df.empty else 0,
         },
-        "best_params": best_params_map,
+        "best_params": best_settings_map,
         "validation_metrics": validation_metrics,
+        "validation_champion_by_horizon": validation_champion_by_horizon,
         "champion_by_horizon": champion_by_horizon,
         "regression_check": regression_check_df.to_dict(orient="records"),
         "regression_gate_passed": regression_gate_passed,
+        "threshold_accuracy": {
+            "default_tolerance_ppt": DEFAULT_ERROR_TOLERANCE_PPT,
+            "default_acceptance_threshold_pct": DEFAULT_ACCEPTANCE_THRESHOLD_PCT,
+            "acceptance_rules": DEFAULT_ACCEPTANCE_RULES,
+            "acceptance_summary": acceptance_df.to_dict(orient="records"),
+        },
         "artifacts": {
             "prepared_daily_csv": str(DEFAULT_PREPARED_DAILY_CSV),
             "train_feature_csv": str(DEFAULT_TRAIN_FEATURES_CSV),
@@ -707,6 +865,8 @@ def run_training(
             "backtest_metrics_csv": str(DEFAULT_BACKTEST_METRICS_CSV),
             "lstm_metrics_csv": str(DEFAULT_LSTM_METRICS_CSV),
             "regression_check_csv": str(DEFAULT_REGRESSION_CHECK_CSV),
+            "threshold_metrics_csv": str(DEFAULT_THRESHOLD_METRICS_CSV),
+            "acceptance_summary_csv": str(DEFAULT_ACCEPTANCE_SUMMARY_CSV),
             "report_path": str(DEFAULT_REPORT_PATH),
         },
         "data_sources": {
@@ -724,6 +884,8 @@ def run_training(
     markdown = build_report_markdown(
         metrics_df=metrics_df,
         season_df=season_df,
+        threshold_df=threshold_df,
+        acceptance_df=acceptance_df,
         provinces=provinces,
         model_version=model_version,
         chart_paths=chart_paths,

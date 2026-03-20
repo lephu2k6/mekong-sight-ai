@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, List, Sequence, Tuple
 
+import numpy as np
 import pandas as pd
 
 from .config import DEFAULT_DRY_MONTHS, FORECAST_HORIZONS
@@ -75,6 +76,54 @@ def build_feature_frame(
     return feature_frame, feature_cols, target_cols
 
 
+def add_advanced_xgb_features(
+    frame: pd.DataFrame,
+    feature_cols: Sequence[str],
+) -> Tuple[pd.DataFrame, List[str]]:
+    enhanced = frame.copy()
+
+    enhanced["month_sin"] = np.sin(2.0 * np.pi * enhanced["month"] / 12.0)
+    enhanced["month_cos"] = np.cos(2.0 * np.pi * enhanced["month"] / 12.0)
+    enhanced["doy_sin"] = np.sin(2.0 * np.pi * enhanced["day_of_year"] / 366.0)
+    enhanced["doy_cos"] = np.cos(2.0 * np.pi * enhanced["day_of_year"] / 366.0)
+    enhanced["sal_delta_1"] = enhanced["sal_t-1"] - enhanced["sal_t-2"]
+    enhanced["sal_delta_3"] = enhanced["sal_t-1"] - enhanced["sal_t-4"]
+    enhanced["sal_delta_7"] = enhanced["sal_t-1"] - enhanced["sal_t-8"]
+    enhanced["sal_vol_7d"] = enhanced[[f"sal_t-{lag}" for lag in range(1, 8)]].std(axis=1)
+    enhanced["rain_3d_sum"] = enhanced[[f"rain_t-{lag}" for lag in range(1, 4)]].sum(axis=1)
+    enhanced["rain_14d_proxy"] = enhanced["rain_7d_sum"] + enhanced[
+        [f"rain_t-{lag}" for lag in range(1, 8)]
+    ].sum(axis=1)
+    enhanced["temp_delta_1"] = enhanced["temp_t-1"] - enhanced["temp_t-2"]
+    enhanced["sal_x_dry"] = enhanced["sal_t-1"] * enhanced["is_dry_season"]
+    enhanced["rain_x_dry"] = enhanced["rain_7d_sum"] * enhanced["is_dry_season"]
+
+    denom = enhanced["sal_7d_avg"].astype(float).to_numpy()
+    numer = enhanced["sal_3d_avg"].astype(float).to_numpy()
+    ratio = np.ones(len(enhanced), dtype=float)
+    safe_mask = np.isfinite(denom) & (np.abs(denom) >= 1e-6)
+    ratio[safe_mask] = numer[safe_mask] / denom[safe_mask]
+    enhanced["sal_ratio_3_7"] = ratio
+
+    extra_cols = [
+        "month_sin",
+        "month_cos",
+        "doy_sin",
+        "doy_cos",
+        "sal_delta_1",
+        "sal_delta_3",
+        "sal_delta_7",
+        "sal_ratio_3_7",
+        "sal_vol_7d",
+        "rain_3d_sum",
+        "rain_14d_proxy",
+        "temp_delta_1",
+        "sal_x_dry",
+        "rain_x_dry",
+    ]
+    return enhanced, list(feature_cols) + extra_cols
+
+
 def filter_valid_provinces(
     frame: pd.DataFrame,
     feature_cols: Sequence[str],
@@ -130,4 +179,3 @@ def encode_features(
     dummies = dummies.loc[:, province_columns]
     encoded = pd.concat([x.reset_index(drop=True), dummies.reset_index(drop=True)], axis=1)
     return encoded
-

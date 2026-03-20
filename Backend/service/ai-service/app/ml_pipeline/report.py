@@ -92,6 +92,8 @@ def generate_error_by_season_chart(season_df: pd.DataFrame, chart_dir: Path) -> 
 def build_report_markdown(
     metrics_df: pd.DataFrame,
     season_df: pd.DataFrame,
+    threshold_df: pd.DataFrame,
+    acceptance_df: pd.DataFrame,
     provinces: Iterable[str],
     model_version: str,
     chart_paths: List[Path],
@@ -112,6 +114,21 @@ def build_report_markdown(
     season_view = season_df[season_df["horizon"].isin([1, 3, 7])].copy()
     season_view["mae"] = season_view["mae"].round(4)
     season_view["rmse"] = season_view["rmse"].round(4)
+    threshold_view = threshold_df.copy()
+    for column in ("tolerance_ppt", "accuracy_pct", "target_accuracy_pct"):
+        if column in threshold_view.columns:
+            threshold_view[column] = pd.to_numeric(threshold_view[column], errors="coerce").round(2)
+    acceptance_view = acceptance_df.copy()
+    for column in (
+        "selected_rmse",
+        "evaluation_rmse",
+        "baseline_rmse",
+        "within_tolerance_accuracy_pct",
+        "tolerance_ppt",
+        "target_accuracy_pct",
+    ):
+        if column in acceptance_view.columns:
+            acceptance_view[column] = pd.to_numeric(acceptance_view[column], errors="coerce").round(2)
     backtest_view = backtest_summary_df.copy()
     for column in ("mae_mean", "mae_std", "rmse_mean", "rmse_std"):
         if column in backtest_view.columns:
@@ -140,7 +157,8 @@ def build_report_markdown(
         "",
         "## Dataset",
         "- Granularity: daily province-level.",
-        "- Features: lag salinity, lag weather, rolling stats, seasonality, province one-hot.",
+        "- Baseline features: lag salinity, lag weather, rolling stats, seasonality, province one-hot.",
+        "- XGBoost features: baseline features plus cyclic time, salinity trend, short-rainfall context, and dry-season interactions.",
         "- Split: 70% train, 15% val, 15% test (time-ordered, no shuffle).",
         "",
         "## Metrics (day1/day3/day7)",
@@ -157,6 +175,12 @@ def build_report_markdown(
         "",
         "## Error by Season (dry vs rainy)",
         _markdown_table(season_view.sort_values(["model", "horizon", "season"]).reset_index(drop=True)),
+        "",
+        "## Threshold Accuracy Summary",
+        _markdown_table(threshold_view.sort_values(["horizon", "model"]).reset_index(drop=True)),
+        "",
+        "## Acceptance Summary (80% Gate)",
+        _markdown_table(acceptance_view),
         "",
         "## LSTM Pilot",
         _markdown_table(lstm_view),

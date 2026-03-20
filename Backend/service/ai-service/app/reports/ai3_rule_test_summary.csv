@@ -1,0 +1,2 @@
+total_cases,decision_accuracy_pct,urgency_accuracy_pct,avg_action_count,all_cases_passed,evaluation_type
+7,100.0,100.0,3.142857142857143,True,rule_based_scenario_validation
